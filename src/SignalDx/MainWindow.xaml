@@ -1,0 +1,201 @@
+<Window x:Class="SignalDx.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SignalDx.Controls"
+        xmlns:conv="clr-namespace:SignalDx.Converters"
+        Title="Signal DX — FT8 Console"
+        Width="1280" Height="820"
+        MinWidth="1024" MinHeight="680"
+        WindowStartupLocation="CenterScreen">
+  <Window.Resources>
+    <conv:BoolToBrushConverter x:Key="CqHighlight"
+                               TrueBrush="#33280A"
+                               FalseBrush="Transparent"/>
+  </Window.Resources>
+
+  <DockPanel Margin="10">
+    <!-- Top station bar -->
+    <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}"
+            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,8" Margin="0,0,0,8">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <WrapPanel VerticalAlignment="Center">
+          <TextBlock Text="SIGNAL DX" FontSize="20" FontWeight="Bold"
+                     Foreground="{StaticResource AccentBrush}" Margin="0,0,18,0" VerticalAlignment="Center"/>
+          <Label Content="My Call"/>
+          <TextBox Width="90" Text="{Binding MyCall, UpdateSourceTrigger=PropertyChanged}"/>
+          <Label Content="Grid" Margin="10,0,0,0"/>
+          <TextBox Width="60" Text="{Binding MyGrid, UpdateSourceTrigger=PropertyChanged}"/>
+          <Label Content="Band" Margin="10,0,0,0"/>
+          <TextBox Width="50" Text="{Binding Band, UpdateSourceTrigger=PropertyChanged}"/>
+          <Label Content="Dial MHz" Margin="10,0,0,0"/>
+          <TextBox Width="80" Text="{Binding DialMhz, UpdateSourceTrigger=PropertyChanged}"/>
+          <Label Content="Dx Call" Margin="14,0,0,0"/>
+          <TextBox Width="90" Text="{Binding DxCall, UpdateSourceTrigger=PropertyChanged}"/>
+          <Label Content="Dx Grid" Margin="10,0,0,0"/>
+          <TextBox Width="60" Text="{Binding DxGrid, UpdateSourceTrigger=PropertyChanged}"/>
+          <Label Content="Rpt" Margin="10,0,0,0"/>
+          <TextBox Width="50" Text="{Binding Report, UpdateSourceTrigger=PropertyChanged}"/>
+        </WrapPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <Button Content="Save" Command="{Binding SaveSettingsCommand}" Style="{StaticResource AccentButton}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Status / slot -->
+    <Border DockPanel.Dock="Bottom" Background="{StaticResource PanelBrush}"
+            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,6" Margin="0,8,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="220"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="{Binding SlotLabel}" HorizontalAlignment="Right" Margin="0,0,0,4"/>
+          <ProgressBar Value="{Binding SlotProgress}" Maximum="1"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Main body -->
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="2.2*"/>
+        <RowDefinition Height="2.4*"/>
+        <RowDefinition Height="1.3*"/>
+      </Grid.RowDefinitions>
+
+      <!-- Controls row -->
+      <Border Grid.Row="0" Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+        <DockPanel>
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+            <Button Content="Monitor" Command="{Binding StartMonitorCommand}" Style="{StaticResource AccentButton}"/>
+            <Button Content="Stop" Command="{Binding StopMonitorCommand}"/>
+            <Button Content="Enable TX" Command="{Binding EnableTxCommand}" Style="{StaticResource TxButton}"/>
+            <Button Content="Halt Tx" Command="{Binding HaltTxCommand}"/>
+            <CheckBox Content="Simulate decodes" IsChecked="{Binding SimulateDecodes}" Margin="12,0,0,0"/>
+            <CheckBox Content="TX even" IsChecked="{Binding TxEven}"/>
+            <Label Content="Rx Hz" Margin="12,0,0,0"/>
+            <TextBox Width="60" Text="{Binding RxHz, UpdateSourceTrigger=PropertyChanged}"/>
+            <Label Content="Tx Hz" Margin="8,0,0,0"/>
+            <TextBox Width="60" Text="{Binding TxHz, UpdateSourceTrigger=PropertyChanged}"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Label Content="In"/>
+            <ComboBox Width="180" ItemsSource="{Binding InputDevices}"
+                      SelectedIndex="{Binding SelectedInputIndex}"/>
+            <Label Content="Out" Margin="8,0,0,0"/>
+            <ComboBox Width="180" ItemsSource="{Binding OutputDevices}"
+                      SelectedIndex="{Binding SelectedOutputIndex}"/>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- Waterfall -->
+      <Border Grid.Row="1" Background="#070B14" BorderBrush="{StaticResource BorderBrush}"
+              BorderThickness="1" Margin="0,0,0,8" ClipToBounds="True">
+        <Grid>
+          <controls:WaterfallControl x:Name="Waterfall"/>
+          <DockPanel Margin="8" IsHitTestVisible="False">
+            <TextBlock DockPanel.Dock="Top" Text="WATERFALL  200–3000 Hz"
+                       Foreground="#6F86A8" FontSize="11"/>
+            <TextBlock DockPanel.Dock="Bottom" HorizontalAlignment="Right"
+                       Text="cyan=Rx  orange=Tx" Foreground="#6F86A8" FontSize="11"/>
+          </DockPanel>
+        </Grid>
+      </Border>
+
+      <!-- Activity + macros -->
+      <Grid Grid.Row="2" Margin="0,0,0,8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2.2*"/>
+          <ColumnDefinition Width="12"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="8,6">
+              <TextBlock Text="BAND ACTIVITY" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"/>
+              <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearActivityCommand}"
+                      HorizontalAlignment="Right" Padding="8,2"/>
+            </DockPanel>
+            <DataGrid ItemsSource="{Binding Activity}" SelectedItem="{Binding SelectedDecode}">
+              <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                  <Setter Property="Background" Value="{Binding IsCq, Converter={StaticResource CqHighlight}}"/>
+                </Style>
+              </DataGrid.RowStyle>
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}" Width="70"/>
+                <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}" Width="48"/>
+                <DataGridTextColumn Header="DT" Binding="{Binding Dt, StringFormat=0.00}" Width="48"/>
+                <DataGridTextColumn Header="Hz" Binding="{Binding Hz}" Width="55"/>
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </Border>
+
+        <Border Grid.Column="2" Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="TX MACROS" FontWeight="SemiBold"
+                       Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+            <TextBox DockPanel.Dock="Bottom" Margin="0,8,0,0"
+                     Text="{Binding FreeText, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Generated / free-text TX message"/>
+            <ItemsControl ItemsSource="{Binding Macros}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="2"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Content="{Binding Label}"
+                          Command="{Binding DataContext.SendMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"
+                          Style="{StaticResource TxButton}"
+                          Margin="0,0,6,6" Height="36"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <!-- QSO log -->
+      <Border Grid.Row="3" Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+        <DockPanel>
+          <DockPanel DockPanel.Dock="Top" Margin="8,6">
+            <TextBlock Text="QSO LOG" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"/>
+            <Button DockPanel.Dock="Right" Content="Log QSO" Command="{Binding LogQsoCommand}"
+                    Style="{StaticResource AccentButton}" HorizontalAlignment="Right" Padding="10,2"/>
+          </DockPanel>
+          <DataGrid ItemsSource="{Binding Log}">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="UTC" Binding="{Binding UtcStart, StringFormat=yyyy-MM-dd HH:mm}" Width="130"/>
+              <DataGridTextColumn Header="Call" Binding="{Binding DxCall}" Width="90"/>
+              <DataGridTextColumn Header="Grid" Binding="{Binding DxGrid}" Width="60"/>
+              <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="55"/>
+              <DataGridTextColumn Header="Band" Binding="{Binding Band}" Width="55"/>
+              <DataGridTextColumn Header="Sent" Binding="{Binding SentRst}" Width="55"/>
+              <DataGridTextColumn Header="Rcvd" Binding="{Binding RcvdRst}" Width="55"/>
+              <DataGridTextColumn Header="Comment" Binding="{Binding Comment}" Width="*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>
