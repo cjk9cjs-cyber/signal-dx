@@ -1,3 +1,4 @@
+using SignalDx.Geo;
 using SignalDx.Models;
 
 namespace SignalDx.Ft8;
@@ -38,19 +39,27 @@ public sealed class SimulatedDecoder
 
             bool isNew = _heard.Add(call);
             var parsed = Ft8MessageBuilder.Parse(message);
+            // Prefer explicit grid from CQ/message; fall back to the simulated station grid.
+            string? dxGrid = parsed.DxGrid ?? (cq ? grid : null);
+            double? miles = Maidenhead.DistanceMiles(station.MyGrid, dxGrid);
+            string? country = CallsignCountry.FromCall(parsed.DxCall);
+            string? state = UsState.Resolve(country, dxGrid, parsed.DxCall);
 
             hits.Add(new DecodeHit
             {
                 Utc = utc,
-                Mode = "FT8",
+                Mode = string.IsNullOrWhiteSpace(station.Mode) ? "FT8" : station.Mode,
                 Hz = hz,
                 SnrDb = snr,
                 Dt = dt,
                 Message = message,
                 DxCall = parsed.DxCall,
-                DxGrid = parsed.DxGrid,
+                DxGrid = dxGrid,
+                Country = country,
+                State = state,
                 IsNew = isNew,
-                IsCq = cq
+                IsCq = cq,
+                DistanceMiles = miles is double m ? Math.Round(m) : null
             });
         }
 

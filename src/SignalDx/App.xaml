@@ -19,6 +19,7 @@
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
       <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
       <Setter Property="FontSize" Value="13"/>
+      <Setter Property="ResizeMode" Value="CanResizeWithGrip"/>
     </Style>
 
     <Style TargetType="TextBox">
@@ -29,11 +30,152 @@
       <Setter Property="Padding" Value="4,3"/>
     </Style>
 
-    <Style TargetType="ComboBox">
+    <Style TargetType="PasswordBox">
       <Setter Property="Background" Value="#0E1626"/>
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
       <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+      <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="Padding" Value="4,3"/>
+    </Style>
+
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="Foreground" Value="Black"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
       <Setter Property="Padding" Value="4,2"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <!-- Force selected / editable text to stay black (default template can ignore Foreground). -->
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <ToggleButton x:Name="ToggleButton"
+                            Focusable="False"
+                            ClickMode="Press"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="TemplateBackground"
+                            Background="White"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            SnapsToDevicePixels="True">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="18"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="1" Background="#E8EEF6" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+                          <Path x:Name="Arrow"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Data="M 0 0 L 4 4 L 8 0 Z"
+                                Fill="Black"/>
+                        </Border>
+                      </Grid>
+                    </Border>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter x:Name="ContentSite"
+                                IsHitTestVisible="False"
+                                Margin="6,3,22,3"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Left"
+                                RecognizesAccessKey="True"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                TextElement.Foreground="Black">
+                <ContentPresenter.Resources>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="Black"/>
+                  </Style>
+                </ContentPresenter.Resources>
+              </ContentPresenter>
+              <TextBox x:Name="PART_EditableTextBox"
+                       Style="{x:Null}"
+                       Visibility="Hidden"
+                       Background="White"
+                       Foreground="Black"
+                       CaretBrush="Black"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Center"
+                       Margin="6,3,22,3"
+                       Focusable="True"
+                       IsReadOnly="{TemplateBinding IsReadOnly}"/>
+              <Popup x:Name="Popup"
+                     Placement="Bottom"
+                     IsOpen="{TemplateBinding IsDropDownOpen}"
+                     AllowsTransparency="True"
+                     Focusable="False"
+                     PopupAnimation="Slide">
+                <Grid x:Name="DropDown"
+                      SnapsToDevicePixels="True"
+                      MinWidth="{TemplateBinding ActualWidth}"
+                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                  <Border x:Name="DropDownBorder"
+                          Background="White"
+                          BorderBrush="{StaticResource BorderBrush}"
+                          BorderThickness="1">
+                    <ScrollViewer Margin="0" SnapsToDevicePixels="True">
+                      <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                    </ScrollViewer>
+                  </Border>
+                </Grid>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsEditable" Value="True">
+                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="PART_EditableTextBox" Property="Foreground" Value="#666666"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Setter Property="ItemContainerStyle">
+        <Setter.Value>
+          <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Style.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter Property="Background" Value="#D6EBFF"/>
+                <Setter Property="Foreground" Value="Black"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="#B7DBFF"/>
+                <Setter Property="Foreground" Value="Black"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#666666"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Foreground" Value="Black"/>
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="Padding" Value="6,3"/>
+      <Style.Triggers>
+        <Trigger Property="IsHighlighted" Value="True">
+          <Setter Property="Background" Value="#D6EBFF"/>
+          <Setter Property="Foreground" Value="Black"/>
+        </Trigger>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#B7DBFF"/>
+          <Setter Property="Foreground" Value="Black"/>
+        </Trigger>
+      </Style.Triggers>
     </Style>
 
     <Style TargetType="CheckBox">

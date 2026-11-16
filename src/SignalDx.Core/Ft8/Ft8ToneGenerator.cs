@@ -8,13 +8,15 @@ public static class Ft8ToneGenerator
 {
     const int SampleRate = 48000;
 
-    public static float[] Generate(string message, int baseHz, double seconds = 12.64)
+    public static float[] Generate(string message, int baseHz, double seconds = 12.64, double drive01 = 0.4)
     {
         var symbols = BuildSymbols(message);
         int totalSamples = (int)(SampleRate * seconds);
         var audio = new float[totalSamples];
         double samplesPerSymbol = SampleRate * Ft8Timing.SymbolDurationSec;
         double phase = 0;
+        // Full-scale at 100% drive — use the Drive slider to set ALC on the radio.
+        double amplitude = Math.Clamp(drive01, 0, 1);
 
         for (int i = 0; i < totalSamples; i++)
         {
@@ -23,7 +25,7 @@ public static class Ft8ToneGenerator
             phase += 2 * Math.PI * freq / SampleRate;
             if (phase > 2 * Math.PI) phase -= 2 * Math.PI;
             double env = Envelope(i, totalSamples);
-            audio[i] = (float)(0.25 * env * Math.Sin(phase));
+            audio[i] = (float)(amplitude * env * Math.Sin(phase));
         }
 
         return audio;

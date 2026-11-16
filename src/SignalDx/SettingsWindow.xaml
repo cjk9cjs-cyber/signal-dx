@@ -1,0 +1,357 @@
+<Window x:Class="SignalDx.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:helpers="clr-namespace:SignalDx.Helpers"
+        Title="Signal DX — Settings"
+        Width="920" Height="640"
+        MinWidth="640" MinHeight="420"
+        ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Cascadia Mono, Consolas, Courier New"
+        FontSize="13">
+  <DockPanel Margin="12">
+    <Border DockPanel.Dock="Bottom" Padding="0,10,0,0">
+      <DockPanel>
+        <TextBlock Text="{Binding CatStatus}" Foreground="{StaticResource GoodBrush}"
+                   VerticalAlignment="Center" TextWrapping="Wrap"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button Content="Save" Command="{Binding SaveSettingsCommand}" Style="{StaticResource AccentButton}"
+                  IsDefault="True" MinWidth="90"/>
+          <Button Content="Close" Click="Close_Click" IsCancel="True" MinWidth="90" Margin="0"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <TabControl Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}">
+      <TabControl.Resources>
+        <Style TargetType="TabItem">
+          <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+          <Setter Property="Padding" Value="14,8"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="TabItem">
+                <Border x:Name="TabBorder" Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,1,1,0"
+                        Margin="0,0,4,0" Padding="{TemplateBinding Padding}">
+                  <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsSelected" Value="True">
+                    <Setter TargetName="TabBorder" Property="Background" Value="#1C2A44"/>
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+      </TabControl.Resources>
+
+      <!-- Hamlib / CAT -->
+      <TabItem Header="Hamlib / CAT">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <DockPanel Margin="0,0,0,12">
+              <TextBlock Text="RIG STATUS" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"/>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock Text="{Binding RigFreqText}" FontSize="20" FontWeight="Bold"
+                           Foreground="{StaticResource AccentBrush}" Margin="0,0,16,0"/>
+                <TextBlock Text="{Binding RigModeText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBlock Text="{Binding RigPttText}" VerticalAlignment="Center"
+                           Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"/>
+              </StackPanel>
+            </DockPanel>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Connection" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="110"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+
+                  <Label Grid.Row="0" Grid.Column="0" Content="Backend"/>
+                  <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,12,8"
+                            ItemsSource="{Binding CatBackends}" SelectedItem="{Binding SelectedCatBackend}"/>
+                  <Label Grid.Row="0" Grid.Column="2" Content="Baud"/>
+                  <TextBox Grid.Row="0" Grid.Column="3" Margin="0,0,0,8"
+                           Text="{Binding CatBaud, UpdateSourceTrigger=PropertyChanged}"/>
+
+                  <Label Grid.Row="1" Grid.Column="0" Content="Model filter"/>
+                  <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="Reload models" Command="{Binding RefreshHamlibModelsCommand}" Margin="6,0,0,0"/>
+                    <TextBox Text="{Binding HamlibModelFilter, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Filter by id, manufacturer, or model (e.g. 7300, Icom, FT-991)"/>
+                  </DockPanel>
+
+                  <Label Grid.Row="2" Grid.Column="0" Content="Hamlib model"/>
+                  <ComboBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,0,12,8"
+                            ItemsSource="{Binding HamlibModelChoices}"
+                            SelectedIndex="{Binding SelectedHamlibModelIndex}"
+                            IsEditable="False"/>
+                  <TextBlock Grid.Row="2" Grid.Column="3" Margin="0,0,0,8"
+                             VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                             Text="{Binding HamlibModelCountText}"/>
+
+                  <Label Grid.Row="3" Grid.Column="0" Content="Device"/>
+                  <DockPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="↻ Ports" Command="{Binding RefreshPortsCommand}"
+                            Margin="6,0,0,0"/>
+                    <ComboBox ItemsSource="{Binding ComPorts}" IsEditable="True"
+                              Text="{Binding HamlibDeviceDisplay, UpdateSourceTrigger=PropertyChanged}"
+                              ToolTip="All COM / USB-serial devices with friendly names"/>
+                  </DockPanel>
+
+                  <Label Grid.Row="4" Grid.Column="0" Content="TCP host"/>
+                  <TextBox Grid.Row="4" Grid.Column="1" Margin="0,0,12,8"
+                           Text="{Binding CatHost, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Hamlib: rigctld host. HRD: usually localhost"/>
+                  <Label Grid.Row="4" Grid.Column="2" Content="rigctld port"/>
+                  <TextBox Grid.Row="4" Grid.Column="3" Margin="0,0,0,8"
+                           Text="{Binding CatPort, UpdateSourceTrigger=PropertyChanged}"/>
+
+                  <Label Grid.Row="5" Grid.Column="0" Content="Serial COM"/>
+                  <ComboBox Grid.Row="5" Grid.Column="1" Margin="0,0,12,0" IsEditable="True"
+                            ItemsSource="{Binding ComPorts}"
+                            Text="{Binding CatComPort, UpdateSourceTrigger=PropertyChanged}"/>
+                  <Label Grid.Row="5" Grid.Column="2" Content="HRD port"/>
+                  <TextBox Grid.Row="5" Grid.Column="3" Margin="0,0,0,8"
+                           Text="{Binding HrdPort, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Ham Radio Deluxe Rig Control TCP port (default 7809)"/>
+                </Grid>
+                <DockPanel Margin="0,4,0,0">
+                  <Label Content="rigctld path" DockPanel.Dock="Left"/>
+                  <Button DockPanel.Dock="Right" Content="Find" Command="{Binding FindRigctldCommand}" Margin="6,0,0,0"/>
+                  <TextBox Text="{Binding HamlibRigctldPath, UpdateSourceTrigger=PropertyChanged}"/>
+                </DockPanel>
+                <TextBlock Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Tip: filter “Deluxe” or “HRD” to select Ham Radio Deluxe (virtual model 9999). Start HRD Rig Control first, then Connect — no rigctld needed."/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Rig actions" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <WrapPanel>
+                  <Label Content="Mode"/>
+                  <ComboBox Width="100" ItemsSource="{Binding HamlibModes}" SelectedItem="{Binding HamlibMode}"/>
+                  <Button Content="Set mode" Command="{Binding SetRigModeCommand}" Margin="6,0,0,0"/>
+                  <Button Content="Set dial → rig" Command="{Binding SetRigFreqCommand}" Margin="6,0,0,0"/>
+                  <Button Content="PTT" Command="{Binding TogglePttCommand}" Style="{StaticResource TxButton}" Margin="10,0,0,0"/>
+                  <Button Content="Refresh" Command="{Binding RefreshRigCommand}" Margin="6,0,0,0"/>
+                </WrapPanel>
+                <WrapPanel Margin="0,10,0,0">
+                  <CheckBox Content="Auto-start rigctld" IsChecked="{Binding HamlibAutoStart}"/>
+                  <CheckBox Content="PTT on TX" IsChecked="{Binding CatPttEnabled}"/>
+                  <CheckBox Content="Follow dial" IsChecked="{Binding CatFollowDial}"/>
+                  <CheckBox Content="CAT RF power" IsChecked="{Binding CatRfPowerEnabled}" Margin="12,0,0,0"
+                            ToolTip="Push Power (W) / Max watts as Hamlib RFPOWER on TX"/>
+                  <Label Content="Max W" Margin="10,0,0,0"/>
+                  <TextBox Width="50" Text="{Binding RadioMaxWatts, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Radio max watts for RFPOWER = Power / Max"/>
+                </WrapPanel>
+                <WrapPanel Margin="0,12,0,0">
+                  <Button Content="Start rigctld" Command="{Binding StartRigctldCommand}"/>
+                  <Button Content="Stop rigctld" Command="{Binding StopRigctldCommand}"/>
+                  <Button Content="Connect" Command="{Binding ConnectCatCommand}" Style="{StaticResource AccentButton}" Margin="10,0,0,0"/>
+                  <Button Content="Disconnect" Command="{Binding DisconnectCatCommand}"/>
+                </WrapPanel>
+                <TextBlock Text="{Binding RigInfoText}" Foreground="{StaticResource MutedBrush}"
+                           Margin="0,10,0,0" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- Logbooks -->
+      <TabItem Header="Logbooks">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="WSJT-X UDP (Log4OM, Logger32, HRD, …)" FontWeight="SemiBold"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <WrapPanel>
+                  <CheckBox Content="Enable UDP logging" IsChecked="{Binding UdpLogEnabled}"/>
+                  <Label Content="Host" Margin="16,0,0,0"/>
+                  <TextBox Width="140" Text="{Binding UdpLogHost, UpdateSourceTrigger=PropertyChanged}"/>
+                  <Label Content="Port" Margin="8,0,0,0"/>
+                  <TextBox Width="70" Text="{Binding UdpLogPort, UpdateSourceTrigger=PropertyChanged}"/>
+                </WrapPanel>
+                <TextBlock Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Sends Heartbeat, QSO Logged, and Logged ADIF packets compatible with WSJT-X/JTDX listeners."/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="ADIF file" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Append each logged QSO to ADIF file" IsChecked="{Binding AdifAppendEnabled}" Margin="0,0,0,8"/>
+                <DockPanel>
+                  <Label Content="Path" DockPanel.Dock="Left"/>
+                  <TextBox Text="{Binding AdifPath, UpdateSourceTrigger=PropertyChanged}"/>
+                </DockPanel>
+                <Button Content="Export full log as ADIF…" Command="{Binding ExportAdifCommand}"
+                        HorizontalAlignment="Left" Margin="0,10,0,0"/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Club Log" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Upload on Log QSO" IsChecked="{Binding ClubLogEnabled}" Margin="0,0,0,8"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <Label Content="Email"/>
+                  <TextBox Grid.Column="1" Margin="0,0,12,0"
+                           Text="{Binding ClubLogEmail, UpdateSourceTrigger=PropertyChanged}"/>
+                  <Label Grid.Column="2" Content="Password"/>
+                  <PasswordBox Grid.Column="3"
+                               helpers:PasswordBoxBinder.BindPassword="True"
+                               helpers:PasswordBoxBinder.BoundPassword="{Binding ClubLogPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12">
+              <StackPanel>
+                <TextBlock Text="QRZ Logbook" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Upload on Log QSO" IsChecked="{Binding QrzEnabled}" Margin="0,0,0,8"/>
+                <DockPanel>
+                  <Label Content="API key" DockPanel.Dock="Left"/>
+                  <PasswordBox helpers:PasswordBoxBinder.BindPassword="True"
+                               helpers:PasswordBoxBinder.BoundPassword="{Binding QrzApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                </DockPanel>
+                <TextBlock Text="QRZ call lookup" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"
+                           Margin="0,16,0,8"/>
+                <CheckBox Content="Look up when selecting Band/RX activity" IsChecked="{Binding QrzLookupOnSelect}"
+                          Margin="0,0,0,6"/>
+                <CheckBox Content="Fill empty DX grid from QRZ" IsChecked="{Binding QrzFillGrid}" Margin="0,0,0,8"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <Label Content="Username"/>
+                  <TextBox Grid.Column="1" Margin="0,0,12,0"
+                           Text="{Binding QrzUsername, UpdateSourceTrigger=PropertyChanged}"/>
+                  <Label Grid.Column="2" Content="Password"/>
+                  <PasswordBox Grid.Column="3"
+                               helpers:PasswordBoxBinder.BindPassword="True"
+                               helpers:PasswordBoxBinder.BoundPassword="{Binding QrzPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+                <TextBlock Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="QRZ.com login for XML callsign lookup. Full name/grid/country needs a QRZ Logbook Data subscription. Double-click an RX row or use Open to view the call on qrz.com."/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- Decoder -->
+      <TabItem Header="Decoder">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="FT8 / FT4 decode engine" FontWeight="SemiBold"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <TextBlock Text="{Binding DecoderStatusText}" Margin="0,0,0,10"
+                           Foreground="{StaticResource AccentBrush}"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="110"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+
+                  <Label Grid.Row="0" Grid.Column="0" Content="Engine"/>
+                  <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,12,8"
+                            ItemsSource="{Binding DecoderEngines}"
+                            SelectedItem="{Binding SelectedDecoderEngine}"/>
+                  <Label Grid.Row="0" Grid.Column="2" Content="Depth"/>
+                  <TextBox Grid.Row="0" Grid.Column="3" Margin="0,0,0,8"
+                           Text="{Binding JtdxDecodeDepth, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="jtdxjt9 -d depth (1–3)"/>
+
+                  <Label Grid.Row="1" Grid.Column="0" Content="jtdxjt9"/>
+                  <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="Find" Command="{Binding FindJtdxCommand}" Margin="6,0,0,0"/>
+                    <TextBox Text="{Binding JtdxJt9Path, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Path to jtdxjt9.exe — run from its bin folder for DLL resolution"/>
+                  </DockPanel>
+
+                  <CheckBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                            Content="Force Simulate on main console (overrides JTDX)"
+                            IsChecked="{Binding SimulateDecodes}"/>
+                </Grid>
+                <TextBlock Margin="0,10,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Uses the installed JTDX decoder (jtdxjt9) on each UTC slot. Prefer a contest/newer build that supports -8/-4 file mode (e.g. C:\JTDX_contest\bin). Start Monitor so a full slot of audio is buffered. The main Simulate checkbox forces simulated decodes for offline UI work."/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- Display -->
+      <TabItem Header="Display">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12">
+              <StackPanel>
+                <TextBlock Text="Waterfall colors" FontWeight="SemiBold"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <WrapPanel>
+                  <Label Content="Palette"/>
+                  <ComboBox Width="140" ItemsSource="{Binding WaterfallPalettes}"
+                            SelectedItem="{Binding SelectedWaterfallPalette}"/>
+                </WrapPanel>
+                <TextBlock Margin="0,10,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Classic, Amber, Ice, Green, Magenta, Gray, Heat. New spectrum lines use the selected palette immediately; older waterfall history keeps prior colors until it scrolls off."/>
+                <CheckBox Content="Lock Tx = Rx when picking on waterfall"
+                          IsChecked="{Binding LockTxToRx}" Margin="0,14,0,0"/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>
+
