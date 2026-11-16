@@ -96,10 +96,78 @@ public sealed class HrdCatController : ICatController
         return Task.CompletedTask;
     }
 
+    /// <summary>Last raw HRD frequency reply (for diagnostics).</summary>
+    public string? LastFrequencyRaw { get; private set; }
+
     public async Task<long?> GetFrequencyHzAsync(CancellationToken ct = default)
     {
-        string r = await SendRawAsync("get frequency", prependContext: true, ct).ConfigureAwait(false);
-        return long.TryParse(Regex.Match(r, @"\d+").Value, out long hz) ? hz : null;
+        // Prefer VFO A from "get frequencies" (e.g. "7074000-21079000"); fall back to "get frequency".
+        string raw;
+        try
+        {
+            raw = await SendRawAsync("get frequencies", prependContext: true, ct).ConfigureAwait(false);
+            LastFrequencyRaw = raw;
+            long? fromPair = ParseFrequencyHz(raw);
+            if (fromPair is > 0)
+                return fromPair;
+        }
+        catch
+        {
+            // optional command on older HRD
+        }
+
+        raw = await SendRawAsync("get frequency", prependContext: true, ct).ConfigureAwait(false);
+        LastFrequencyRaw = raw;
+        return ParseFrequencyHz(raw);
+    }
+
+    /// <summary>
+    /// Parse HRD frequency replies: Hz ("14074000"), kHz ("14074"), MHz ("14.074"),
+    /// or VFO A-B pairs ("7074000-21079000").
+    /// </summary>
+    public static long? ParseFrequencyHz(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        // Drop HRD context prefixes like "[367] " so the radio id is not parsed as MHz.
+        string cleaned = Regex.Replace(raw.Trim(), @"^\[\d+\]\s*", "");
+
+        // VFO A-B form used by "get frequencies"
+        var pair = Regex.Match(cleaned, @"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)");
+        if (pair.Success)
+            return ScaleToHz(pair.Groups[1].Value);
+
+        // Strip thousands separators: "7,074,000" or "14.074.000" (EU)
+        if (cleaned.Count(c => c == '.') >= 2 && !cleaned.Contains(','))
+        {
+            string digits = Regex.Replace(cleaned, @"[^\d]", "");
+            if (long.TryParse(digits, out long eu) && eu > 0)
+                return eu;
+        }
+
+        var m = Regex.Match(cleaned, @"(\d+(?:[.,]\d+)?)");
+        if (!m.Success) return null;
+        string token = m.Groups[1].Value.Replace(',', '.');
+        return ScaleToHz(token);
+    }
+
+    static long? ScaleToHz(string token)
+    {
+        if (!double.TryParse(token,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double v))
+            return null;
+
+        long hz;
+        if (v >= 1_000_000) // already Hz
+            hz = (long)Math.Round(v);
+        else if (v >= 1_000) // kHz
+            hz = (long)Math.Round(v * 1_000d);
+        else // MHz
+            hz = (long)Math.Round(v * 1_000_000d);
+
+        return hz > 0 ? hz : null;
     }
 
     public async Task SetFrequencyHzAsync(long hz, CancellationToken ct = default)
@@ -152,16 +220,38 @@ public sealed class HrdCatController : ICatController
 
     public async Task SetRfPowerAsync(double level01, CancellationToken ct = default)
     {
-        // Best-effort HRD slider named Power / RF Power when present.
+        await SetSliderByMatchAsync(level01, name =>
+            name.Contains("RF~Power", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Power", StringComparison.OrdinalIgnoreCase)
+            || (name.Contains("Power", StringComparison.OrdinalIgnoreCase)
+                && !name.Contains("ALC", StringComparison.OrdinalIgnoreCase)
+                && !name.Contains("Mic", StringComparison.OrdinalIgnoreCase)
+                && !name.Contains("USB", StringComparison.OrdinalIgnoreCase)), ct).ConfigureAwait(false);
+    }
+
+    public async Task SetAudioDriveAsync(double level01, CancellationToken ct = default)
+    {
+        // Prefer USB/DATA/MIC gain sliders that actually move radio ALC for digi audio.
+        await SetSliderByMatchAsync(level01, name =>
+            name.Contains("USB", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("DATA", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("MIC", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Mod", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Audio", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Drive", StringComparison.OrdinalIgnoreCase), ct).ConfigureAwait(false);
+    }
+
+    async Task SetSliderByMatchAsync(double level01, Func<string, bool> match, CancellationToken ct)
+    {
         try
         {
             string sliders = await SendRawAsync("get sliders", prependContext: true, ct).ConfigureAwait(false);
-            string? power = sliders.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            string? name = sliders.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(s => s.Replace(' ', '~'))
-                .FirstOrDefault(s => s.Contains("Power", StringComparison.OrdinalIgnoreCase));
-            if (power is null) return;
+                .FirstOrDefault(match);
+            if (name is null) return;
             int pct = (int)Math.Round(Math.Clamp(level01, 0, 1) * 100);
-            await SendRawAsync($"set slider {power} {pct}", prependContext: true, ct).ConfigureAwait(false);
+            await SendRawAsync($"set slider {name} {pct}", prependContext: true, ct).ConfigureAwait(false);
         }
         catch
         {

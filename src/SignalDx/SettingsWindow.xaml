@@ -159,7 +159,8 @@
                 <WrapPanel Margin="0,10,0,0">
                   <CheckBox Content="Auto-start rigctld" IsChecked="{Binding HamlibAutoStart}"/>
                   <CheckBox Content="PTT on TX" IsChecked="{Binding CatPttEnabled}"/>
-                  <CheckBox Content="Follow dial" IsChecked="{Binding CatFollowDial}"/>
+                  <CheckBox Content="Follow dial" IsChecked="{Binding CatFollowDial}"
+                            ToolTip="When checked, Apply band / Set dial push the dial to the radio. Leave off to keep the VFO as source of truth."/>
                   <CheckBox Content="CAT RF power" IsChecked="{Binding CatRfPowerEnabled}" Margin="12,0,0,0"
                             ToolTip="Push Power (W) / Max watts as Hamlib RFPOWER on TX"/>
                   <Label Content="Max W" Margin="10,0,0,0"/>
@@ -198,6 +199,16 @@
                 </WrapPanel>
                 <TextBlock Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                            Text="Sends Heartbeat, QSO Logged, and Logged ADIF packets compatible with WSJT-X/JTDX listeners."/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="PSK Reporter" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Enable PSK Reporter spotting" IsChecked="{Binding PskReporterEnabled}" Margin="0,0,0,6"/>
+                <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Sends decoded calls (call, RF freq, SNR, mode) to report.pskreporter.info every ~2 minutes. Requires your call and grid."/>
               </StackPanel>
             </Border>
 

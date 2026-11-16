@@ -43,7 +43,7 @@ public sealed class StationSettings
     public int InputDeviceIndex { get; set; } = -1;
     public int OutputDeviceIndex { get; set; } = -1;
     public string WaterfallPalette { get; set; } = "Classic";
-    public bool LockTxToRx { get; set; } = true;
+    public bool LockTxToRx { get; set; }
 
     // CAT / Hamlib
     public CatBackend CatBackend { get; set; } = CatBackend.HamlibTcp;
@@ -53,7 +53,8 @@ public sealed class StationSettings
     public int CatBaud { get; set; } = 9600;
     public bool CatPollEnabled { get; set; } = true;
     public bool CatPttEnabled { get; set; } = true;
-    public bool CatFollowDial { get; set; } = true;
+    /// <summary>When true, Apply band / Set dial push DialMhz to the radio. Off by default so the VFO is source of truth.</summary>
+    public bool CatFollowDial { get; set; }
     public int HamlibModelId { get; set; } = 2037;
     public string HamlibDevice { get; set; } = "COM3";
     public string HamlibRigctldPath { get; set; } = "";
@@ -79,4 +80,14 @@ public sealed class StationSettings
     public bool QrzLookupOnSelect { get; set; } = true;
     /// <summary>Fill empty Dx Grid from QRZ lookup when available.</summary>
     public bool QrzFillGrid { get; set; } = true;
+
+    /// <summary>Upload decoded callspots to PSK Reporter (report.pskreporter.info).</summary>
+    public bool PskReporterEnabled { get; set; } = true;
+
+    // Main window placement (null / 0 = use XAML defaults)
+    public double? WindowLeft { get; set; }
+    public double? WindowTop { get; set; }
+    public double WindowWidth { get; set; }
+    public double WindowHeight { get; set; }
+    public bool WindowMaximized { get; set; }
 }

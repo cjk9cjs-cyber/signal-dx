@@ -35,11 +35,9 @@ public sealed class CatService : IAsyncDisposable
             await _controller.ConnectAsync(ct).ConfigureAwait(false);
             StatusChanged?.Invoke($"CAT connected: {_controller.Name}");
 
-            if (settings.CatFollowDial)
-                await SetDialMhzAsync(settings.DialMhz, ct).ConfigureAwait(false);
-
-            string mode = string.IsNullOrWhiteSpace(settings.HamlibMode) ? "USB" : settings.HamlibMode;
-            await _controller.SetModeAsync(mode, 0, ct).ConfigureAwait(false);
+            // Do NOT push DialMhz or Mode here. Writing the saved dial forced 20m onto the VFO
+            // before we could read the operator's band; SetMode can also bump Yaesu band-stacks.
+            // Dial follows the radio on connect/poll; Mode is set only via the Set mode control.
 
             if (settings.CatPollEnabled)
                 StartPolling();
@@ -106,6 +104,12 @@ public sealed class CatService : IAsyncDisposable
             Alc = LastSnapshot.Alc
         };
         SnapshotChanged?.Invoke(LastSnapshot);
+    }
+
+    public async Task SetAudioDriveAsync(double level01, CancellationToken ct = default)
+    {
+        if (!_controller.IsConnected) return;
+        await _controller.SetAudioDriveAsync(level01, ct).ConfigureAwait(false);
     }
 
     public async Task SetPttAsync(bool on, bool enabled, CancellationToken ct = default)

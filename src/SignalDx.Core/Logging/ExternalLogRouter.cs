@@ -6,14 +6,21 @@ public sealed class ExternalLogRouter : IDisposable
 {
     readonly ClubLogClient _clubLog = new();
     readonly QrzLogClient _qrz = new();
+    readonly PskReporterClient _psk = new();
     WsjtxUdpLogger? _udp;
 
     public event Action<string>? StatusChanged;
+
+    public ExternalLogRouter()
+    {
+        _psk.StatusChanged += s => StatusChanged?.Invoke(s);
+    }
 
     public void Configure(StationSettings settings)
     {
         _udp?.Dispose();
         _udp = null;
+        _psk.Configure(settings);
         if (!settings.UdpLogEnabled) return;
         try
         {
@@ -26,6 +33,9 @@ public sealed class ExternalLogRouter : IDisposable
             StatusChanged?.Invoke($"UDP log setup failed: {ex.Message}");
         }
     }
+
+    public void ReportDecodes(IEnumerable<DecodeHit> hits, StationSettings settings) =>
+        _psk.Enqueue(hits, settings);
 
     public void Heartbeat(StationSettings settings)
     {
@@ -98,5 +108,9 @@ public sealed class ExternalLogRouter : IDisposable
         StatusChanged?.Invoke("External log: " + string.Join(", ", notes));
     }
 
-    public void Dispose() => _udp?.Dispose();
+    public void Dispose()
+    {
+        _udp?.Dispose();
+        _ = _psk.DisposeAsync().AsTask();
+    }
 }

@@ -33,6 +33,13 @@ public sealed class SettingsStore
 
     public void Save(StationSettings settings)
     {
-        File.WriteAllText(_path, JsonSerializer.Serialize(settings, JsonOptions));
+        try
+        {
+            File.WriteAllText(_path, JsonSerializer.Serialize(settings, JsonOptions));
+        }
+        catch
+        {
+            // Never let settings I/O take down the UI (e.g. unexpected non-finite numbers).
+        }
     }
 }

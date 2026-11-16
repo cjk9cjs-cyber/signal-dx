@@ -12,6 +12,7 @@ public sealed class NullCatController : ICatController
     public Task SetModeUsbAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task SetModeAsync(string mode, int passbandHz = 0, CancellationToken ct = default) => Task.CompletedTask;
     public Task SetRfPowerAsync(double level01, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SetAudioDriveAsync(double level01, CancellationToken ct = default) => Task.CompletedTask;
     public Task<double?> GetRfPowerAsync(CancellationToken ct = default) => Task.FromResult<double?>(null);
     public Task<double?> GetAlcAsync(CancellationToken ct = default) => Task.FromResult<double?>(null);
     public Task<RigSnapshot> GetSnapshotAsync(CancellationToken ct = default) =>

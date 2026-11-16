@@ -59,11 +59,13 @@
             <Label Content="Power" Margin="8,0,0,0"/>
             <TextBox Width="50" Text="{Binding TxPower, UpdateSourceTrigger=PropertyChanged}"/>
             <Label Content="W" Margin="2,0,0,0"/>
-            <Label Content="{Binding TxDriveLabel}" Margin="12,0,4,0"/>
-            <Slider Width="140" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
-                    VerticalAlignment="Center"
+            <Label Content="{Binding TxDriveLabel}" Margin="12,0,4,0" MinWidth="88"
+                   Foreground="{StaticResource WarnBrush}"/>
+            <Slider Width="160" Minimum="0" Maximum="100" TickFrequency="1"
+                    IsMoveToPointEnabled="True" IsSnapToTickEnabled="False"
+                    VerticalAlignment="Center" MinHeight="22"
                     Value="{Binding TxDrivePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    ToolTip="TX audio drive (0–100%) into the radio VAC — raise until radio ALC just ticks"/>
+                    ToolTip="TX audio drive (0–100%). Moves live during TX and sets radio MIC/USB level over CAT when available."/>
             <TextBlock Text="{Binding RxLevelText}" Margin="12,0,0,0" VerticalAlignment="Center"
                        Foreground="{StaticResource GoodBrush}" MinWidth="72"
                        ToolTip="RX audio input level (dB FS) — aim for mid-scale with Monitor running"/>
@@ -88,9 +90,9 @@
           <Label Content="Rpt" Margin="8,0,0,0"/>
           <TextBox Width="50" Text="{Binding Report, UpdateSourceTrigger=PropertyChanged}"/>
           <Button Content="QRZ" Command="{Binding LookupQrzCommand}" Margin="8,0,0,0"
-                  ToolTip="Look up DX call on QRZ.com XML API"/>
+                  ToolTip="Open DX call on qrz.com in your browser"/>
           <Button Content="Open" Command="{Binding OpenQrzCommand}" Margin="4,0,0,0"
-                  ToolTip="Open call on qrz.com in browser"/>
+                  ToolTip="Open DX call on qrz.com in your browser"/>
           <TextBlock Text="{Binding QrzInfoText}" Margin="10,0,0,0" VerticalAlignment="Center"
                      Foreground="{StaticResource GoodBrush}" TextTrimming="CharacterEllipsis"
                      MaxWidth="420" ToolTip="{Binding QrzInfoText}"/>
@@ -99,8 +101,9 @@
                      VerticalAlignment="Center" Width="110"/>
           <ComboBox Width="200" Margin="12,0,0,0" ItemsSource="{Binding BandPresets}"
                     SelectedIndex="{Binding SelectedBandPresetIndex}"
-                    ToolTip="FT8/FT4 dial frequencies (WSJT-X). * = secondary / overflow"/>
-          <Button Content="Apply band" Command="{Binding ApplyBandCommand}" Margin="6,0,0,0"/>
+                    ToolTip="Pick a dial, then Apply band. Startup keeps your last saved band."/>
+          <Button Content="Apply band" Command="{Binding ApplyBandCommand}" Margin="6,0,0,0"
+                  ToolTip="Set Band / Dial (and CAT follow-dial) from the selected preset"/>
           <Button Content="CQ" Command="{Binding StartCqCommand}" Style="{StaticResource TxButton}" Margin="12,0,0,0"/>
           <Button Content="Reset seq" Command="{Binding ResetSeqCommand}"/>
         </WrapPanel>
@@ -246,7 +249,7 @@
               <TextBlock Text="RX FREQUENCY" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"/>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="QRZ" Command="{Binding LookupQrzCommand}" Padding="8,2" Margin="0,0,6,0"
-                        ToolTip="Look up selected / DX call on QRZ"/>
+                        ToolTip="Open selected / DX call on qrz.com in your browser"/>
                 <Button Content="Clear" Command="{Binding ClearRxActivityCommand}" Padding="8,2"/>
               </StackPanel>
             </DockPanel>

@@ -11,6 +11,7 @@ using SignalDx.Cat;
 using SignalDx.Controls;
 using SignalDx.Dsp;
 using SignalDx.Ft8;
+using SignalDx.Geo;
 using SignalDx.Logging;
 using SignalDx.Models;
 using SignalDx.Services;
@@ -29,6 +30,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly JtdxDecoderService _jtdx = new();
     readonly AutoSequencer _seq = new();
     int _jtdxDecodeSeq;
+    bool _logPromptOpen;
     readonly CatService _cat = new();
     readonly ExternalLogRouter _external = new();
     readonly QrzLookupClient _qrzLookup = new();
@@ -130,21 +132,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SetRigFreqCommand = new RelayCommand(() => _ = SetRigFreqAsync());
         SetRigModeCommand = new RelayCommand(() => _ = SetRigModeAsync());
         TogglePttCommand = new RelayCommand(() => _ = TogglePttAsync());
-        RefreshRigCommand = new RelayCommand(() => _ = _cat.RefreshAsync());
+        RefreshRigCommand = new RelayCommand(() => _ = RefreshRigFromRadioAsync());
         FindRigctldCommand = new RelayCommand(FindRigctld);
         FindJtdxCommand = new RelayCommand(FindJtdx);
         LookupQrzCommand = new RelayCommand(
-            () => _ = LookupQrzAsync(DxCall, openBrowser: false),
-            () => !string.IsNullOrWhiteSpace(DxCall));
+            () => LookupQrzInBrowser(),
+            () => !string.IsNullOrWhiteSpace(ResolveQrzCall()));
         OpenQrzCommand = new RelayCommand(
-            () => OpenQrzInBrowser(DxCall),
-            () => !string.IsNullOrWhiteSpace(DxCall));
+            () => LookupQrzInBrowser(),
+            () => !string.IsNullOrWhiteSpace(ResolveQrzCall()));
 
         _cat.StatusChanged += s => Application.Current.Dispatcher.BeginInvoke(() => CatStatus = s);
+        // Radio VFO is source of truth for Dial/Band — follow CAT frequency changes.
         _cat.FrequencyChanged += hz => Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            DialMhz = hz / 1_000_000d;
-            RigFreqText = $"{DialMhz:0.000000} MHz";
+            if (!RigPtt)
+                ApplyDialFromRadio(hz);
+            else
+                RigFreqText = $"{hz / 1_000_000d:0.000000} MHz";
         });
         _cat.SnapshotChanged += snap => Application.Current.Dispatcher.BeginInvoke(() => ApplySnapshot(snap));
         _external.StatusChanged += s => Application.Current.Dispatcher.BeginInvoke(() => Status = s);
@@ -166,8 +171,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(AutoSequence));
         Raise(nameof(Mode));
 
+        ApplyDriveToAlcMeter();
+        Status = "Starting…";
+    }
+
+    /// <summary>Call after the main window is visible so CAT/audio cannot block first paint.</summary>
+    public void StartAfterUiReady()
+    {
         StartMonitor();
-        if (!_capture.IsRunning)
+        if (_settings.CatBackend != CatBackend.None)
+            _ = ConnectCatAsync();
+        if (!_capture.IsRunning && !_cat.IsConnected)
             Status = "Set call/grid, connect CAT if used, start monitor, enable TX when ready.";
     }
 
@@ -417,13 +431,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settings.TxDrivePercent = v;
             Raise();
             Raise(nameof(TxDriveLabel));
-            // Live feedback on the ALC bar while transmitting (CAT ALC may be unavailable).
-            if (_isTransmitting)
-                ApplyDriveToAlcMeter();
+            ApplyDriveLevel(v);
         }
     }
 
     public string TxDriveLabel => $"Drive {_settings.TxDrivePercent}%";
+
+    void ApplyDriveLevel(int percent)
+    {
+        float gain = Math.Clamp(percent / 100f, 0f, 1f);
+        _playback.Gain = gain;
+        ApplyDriveToAlcMeter();
+        // Also push MIC/USB/DATA level over CAT when the radio exposes it (HRD/Hamlib).
+        if (_cat.IsConnected)
+            _ = _cat.SetAudioDriveAsync(gain);
+    }
 
     public bool CatRfPowerEnabled
     {
@@ -601,7 +623,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(value.DxGrid))
             DxGrid = value.DxGrid!;
         RxHz = value.Hz;
-        TxHz = value.Hz;
+        if (LockTxToRx)
+            TxHz = value.Hz;
         Report = FormatSnr(value.SnrDb);
         _qsoStartUtc = DateTime.UtcNow;
         if (AutoSequence && !string.IsNullOrWhiteSpace(DxCall))
@@ -611,7 +634,41 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             FreeText = _seq.NextTxMessage(_settings) ?? FreeText;
         }
         if (QrzLookupOnSelect && !string.IsNullOrWhiteSpace(DxCall))
-            _ = LookupQrzAsync(DxCall, openBrowser: false);
+            _ = LookupQrzAsync(DxCall, openBrowser: false); // API enrich only — don't pop a browser on every select
+    }
+
+    string? ResolveQrzCall()
+    {
+        if (!string.IsNullOrWhiteSpace(SelectedRxDecode?.DxCall))
+            return SelectedRxDecode.DxCall;
+        if (!string.IsNullOrWhiteSpace(SelectedActivityDecode?.DxCall))
+            return SelectedActivityDecode.DxCall;
+        if (SelectedRxDecode is not null)
+        {
+            var (dx, _, _) = Ft8MessageBuilder.Parse(SelectedRxDecode.Message);
+            if (!string.IsNullOrWhiteSpace(dx)) return dx;
+        }
+        if (SelectedActivityDecode is not null)
+        {
+            var (dx, _, _) = Ft8MessageBuilder.Parse(SelectedActivityDecode.Message);
+            if (!string.IsNullOrWhiteSpace(dx)) return dx;
+        }
+        return string.IsNullOrWhiteSpace(DxCall) ? null : DxCall;
+    }
+
+    void LookupQrzInBrowser()
+    {
+        string? call = ResolveQrzCall();
+        if (string.IsNullOrWhiteSpace(call))
+        {
+            Status = "Select a decode or set DX call for QRZ";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(DxCall))
+            DxCall = call;
+        OpenQrzInBrowser(call);
+        Status = $"QRZ → {call}";
+        _ = LookupQrzAsync(call, openBrowser: false);
     }
 
     /// <summary>Double-click a Band/RX decode: load station, arm TX (and auto-seq reply).</summary>
@@ -625,6 +682,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Watch the station on RX only — leave TX where it is for split operation.
+        RxHz = hit.Hz;
+
         // Ensure we have a TX message even if auto-seq was off.
         if (string.IsNullOrWhiteSpace(FreeText) || AutoSequence)
         {
@@ -634,6 +694,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         EnableTx = true;
+        RebuildRxFilter();
         Status = $"TX armed → {DxCall} @ {TxHz} Hz  ({FreeText})";
     }
 
@@ -649,7 +710,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.OutputDeviceIndex = value; Raise(); }
     }
 
-    int _selectedBandPresetIndex;
+    int _selectedBandPresetIndex = -1;
     List<BandPreset> _bandPresetItems = [];
 
     public int SelectedBandPresetIndex
@@ -660,8 +721,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_selectedBandPresetIndex == value) return;
             _selectedBandPresetIndex = value;
             Raise();
-            if (value >= 0)
-                ApplySelectedBand();
+            // Band/dial are applied only via Apply band (or ApplySelectedBand) — never from
+            // ComboBox index changes during startup binding, which would wipe the saved band.
         }
     }
 
@@ -924,6 +985,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.QrzFillGrid = value; Raise(); }
     }
 
+    public bool PskReporterEnabled
+    {
+        get => _settings.PskReporterEnabled;
+        set
+        {
+            _settings.PskReporterEnabled = value;
+            Raise();
+            _external.Configure(_settings);
+        }
+    }
+
     public string QrzInfoText
     {
         get => _qrzInfoText;
@@ -1108,7 +1180,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_cat.IsConnected)
         {
             await PushRfPowerAsync();
-            await _cat.RefreshAsync();
+            // Read VFO a couple of times — HRD/rigctld can return empty on the first poll.
+            long? hz = null;
+            for (int i = 0; i < 3 && hz is null; i++)
+            {
+                await _cat.RefreshAsync();
+                hz = _cat.LastSnapshot.FrequencyHz;
+                if (hz is null)
+                    await Task.Delay(200);
+            }
+            if (hz is long freq && freq > 0)
+                ApplyDialFromRadio(freq);
+            else
+                Status = "CAT connected — could not read frequency; set band manually or Refresh";
         }
     }
 
@@ -1180,14 +1264,44 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RigPttText = next ? "TX" : "RX";
     }
 
+    async Task RefreshRigFromRadioAsync()
+    {
+        await _cat.RefreshAsync();
+        ApplyDialFromRadio(_cat.LastSnapshot.FrequencyHz);
+    }
+
+    long _lastAppliedDialHz;
+
+    /// <summary>Set operator DialMhz/Band from a CAT frequency (Hz).</summary>
+    void ApplyDialFromRadio(long? frequencyHz)
+    {
+        if (frequencyHz is not long hz || hz <= 0) return;
+        double mhz = hz / 1_000_000d;
+        if (mhz is < 0.1 or > 2000)
+        {
+            Status = $"Ignored bogus CAT frequency {hz} Hz";
+            return;
+        }
+
+        RigFreqText = $"{mhz:0.000000} MHz";
+
+        // Ignore tiny dither so we don't rewrite settings every poll.
+        if (Math.Abs(hz - _lastAppliedDialHz) < 50)
+            return;
+        _lastAppliedDialHz = hz;
+
+        DialMhz = mhz; // also updates Band via BandPlan
+        RebuildBandPresetList();
+        SaveSettingsNow();
+        Status = $"Band from radio: {Band} @ {mhz:0.0000} MHz ({hz} Hz)";
+    }
+
     void ApplySnapshot(RigSnapshot snap)
     {
-        if (snap.FrequencyHz is long hz)
-        {
-            DialMhz = hz / 1_000_000d;
-            RigFreqText = $"{DialMhz:0.000000} MHz";
-            RefreshCurrentFreqText();
-        }
+        if (snap.FrequencyHz is long hz && !RigPtt)
+            ApplyDialFromRadio(hz);
+        else if (snap.FrequencyHz is long hzDisp)
+            RigFreqText = $"{hzDisp / 1_000_000d:0.000000} MHz";
         if (!string.IsNullOrWhiteSpace(snap.Mode))
         {
             RigModeText = snap.PassbandHz is > 0 ? $"{snap.Mode} {snap.PassbandHz}Hz" : snap.Mode;
@@ -1204,8 +1318,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             AlcLevel = Math.Clamp(alc, 0, 1);
             AlcText = $"ALC {AlcLevel * 100:0}%";
         }
-        else if (_isTransmitting)
+        else
         {
+            // No CAT ALC — keep the Drive slider reflected on the meter.
             ApplyDriveToAlcMeter();
         }
 
@@ -1222,6 +1337,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         double drive = Math.Clamp(_settings.TxDrivePercent / 100.0, 0, 1);
         AlcLevel = drive;
         AlcText = $"DRV {_settings.TxDrivePercent}%";
+        Raise(nameof(AlcLevel));
+        Raise(nameof(AlcText));
     }
 
     async Task PushRfPowerAsync()
@@ -1260,9 +1377,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Math.Abs(p.DialMhz - DialMhz) < 0.00005);
         if (match < 0)
             match = _bandPresetItems.FindIndex(p =>
+                p.Band.Equals(Band, StringComparison.OrdinalIgnoreCase) &&
+                p.Mode.Equals(mode, StringComparison.OrdinalIgnoreCase));
+        if (match < 0)
+            match = _bandPresetItems.FindIndex(p =>
                 p.Primary && p.Mode.Equals(mode, StringComparison.OrdinalIgnoreCase) &&
                 p.Band.Equals(Band, StringComparison.OrdinalIgnoreCase));
-        _selectedBandPresetIndex = match >= 0 ? match : 0;
+
+        _selectedBandPresetIndex = match >= 0 ? match : -1;
         Raise(nameof(SelectedBandPresetIndex));
     }
 
@@ -1531,13 +1653,44 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         DxGrid = _seq.DxGrid;
                     FreeText = _seq.NextTxMessage(_settings) ?? FreeText;
                     if (_seq.Phase == QsoPhase.Complete)
-                        _ = LogSelectedQsoAsync();
+                        PromptLogQso("QSO complete");
                 }
             }
 
             RebuildRxFilter();
+            _external.ReportDecodes(hits, _settings);
             Status = $"Decoded {hits.Count} ({engineLabel}) @ {utc:HH:mm:ss} UTC";
         });
+    }
+
+    void PushLocalTxDecode(string message)
+    {
+        var parsed = Ft8MessageBuilder.Parse(message);
+        string? dx = !string.IsNullOrWhiteSpace(DxCall) ? DxCall : parsed.DxCall;
+        var hit = new DecodeHit
+        {
+            Utc = DateTime.UtcNow,
+            Mode = Mode,
+            Hz = TxHz,
+            SnrDb = 0,
+            Dt = 0,
+            Message = $"→ {message}",
+            DxCall = dx,
+            DxGrid = string.IsNullOrWhiteSpace(DxGrid) ? parsed.DxGrid : DxGrid,
+            Country = CallsignCountry.FromCall(dx),
+            State = UsState.Resolve(CallsignCountry.FromCall(dx), DxGrid, dx),
+            IsNew = false,
+            IsCq = parsed.IsCq,
+            DistanceMiles = Maidenhead.DistanceMiles(MyGrid, string.IsNullOrWhiteSpace(DxGrid) ? parsed.DxGrid : DxGrid)
+                is double mi ? Math.Round(mi) : null
+        };
+
+        Activity.Insert(0, hit);
+        if (Activity.Count > 500)
+            Activity.RemoveAt(Activity.Count - 1);
+
+        // RX pane already includes TX-frequency rows so outbound calls stay visible while split.
+        RebuildRxFilter();
     }
 
     void RebuildRxFilter()
@@ -1546,7 +1699,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DecodeHit? keep = _selectedRxDecode;
         SelectedRxDecode = null;
         RxActivity.Clear();
-        foreach (var h in Activity.Where(a => Math.Abs(a.Hz - RxHz) <= 50).Take(80))
+        // Include audio near RX, and also our TX frequency so outbound calls stay visible when split.
+        foreach (var h in Activity
+                     .Where(a => Math.Abs(a.Hz - RxHz) <= 50 || Math.Abs(a.Hz - TxHz) <= 50)
+                     .Take(80))
             RxActivity.Add(h);
         if (keep is not null && RxActivity.Contains(keep))
             _selectedRxDecode = keep; // restore quietly without re-running ApplySelectedDecode
@@ -1568,8 +1724,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_isTransmitting) return;
         _isTransmitting = true;
         _qsoStartUtc ??= DateTime.UtcNow;
+        bool promptLogAfterTx = false;
         try
         {
+            // Show the outbound call in Band/RX activity at the TX frequency.
+            PushLocalTxDecode(message);
+
             await PushRfPowerAsync();
             await _cat.SetPttAsync(true, CatPttEnabled);
             double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
@@ -1577,11 +1737,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0, 1);
             var audio = Ft8ToneGenerator.Generate(message, TxHz, seconds, drive01: 1.0);
             int outIdx = OutputDevices.Count == 0 ? -1 : SelectedOutputIndex;
-            ApplyDriveToAlcMeter();
+            ApplyDriveLevel(_settings.TxDrivePercent);
             _playback.PlayMono(audio, AudioCaptureService.SampleRate, outIdx, volume01: drive);
-            Status = $"TX: {message} @ {TxHz} Hz  drive {_settings.TxDrivePercent}%";
+            Status = $"TX: {message} @ {TxHz} Hz  drive {_settings.TxDrivePercent}% — move Drive to set ALC";
             int holdMs = (int)(seconds * 1000) + 400;
             await Task.Delay(holdMs);
+            if (IsSeventyThreeMessage(message) && !string.IsNullOrWhiteSpace(DxCall))
+                promptLogAfterTx = true;
         }
         catch (Exception ex)
         {
@@ -1592,12 +1754,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _playback.Stop();
             await _cat.SetPttAsync(false, CatPttEnabled);
             _isTransmitting = false;
-            if (AlcText.StartsWith("DRV", StringComparison.Ordinal))
-            {
-                AlcText = "ALC —";
-                AlcLevel = 0;
-            }
+            // Keep DRV meter showing the slider so it still feels adjustable when idle.
+            ApplyDriveToAlcMeter();
+            if (promptLogAfterTx)
+                PromptLogQso("73 sent — review QSO");
         }
+    }
+
+    static bool IsSeventyThreeMessage(string message)
+    {
+        var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return false;
+        string last = parts[^1].Trim().ToUpperInvariant();
+        return last is "73" or "RR73";
     }
 
     async Task HaltTxAsync()
@@ -1653,34 +1822,85 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    void PromptLogQso(string reason) => _ = PromptLogQsoAsync(reason);
+
+    async Task PromptLogQsoAsync(string reason)
+    {
+        if (_logPromptOpen || string.IsNullOrWhiteSpace(DxCall)) return;
+        _logPromptOpen = true;
+        try
+        {
+            var entry = BuildQsoDraft();
+            var owner = Application.Current.MainWindow;
+            var win = new LogQsoWindow(entry)
+            {
+                Owner = owner,
+                Title = $"Log QSO — {entry.DxCall}"
+            };
+            Status = reason;
+            bool? ok = win.ShowDialog();
+            if (ok == true)
+                await CommitQsoAsync(win.Entry);
+            else
+            {
+                Status = $"Skipped log for {entry.DxCall}";
+                FinishQsoSession();
+            }
+        }
+        finally
+        {
+            _logPromptOpen = false;
+        }
+    }
+
+    QsoEntry BuildQsoDraft() => new()
+    {
+        UtcStart = _qsoStartUtc ?? DateTime.UtcNow.AddSeconds(-30),
+        UtcEnd = DateTime.UtcNow,
+        Mode = Mode,
+        Band = Band,
+        DialMhz = DialMhz,
+        MyCall = MyCall,
+        MyGrid = MyGrid,
+        DxCall = DxCall.Trim().ToUpperInvariant(),
+        DxGrid = DxGrid.Trim().ToUpperInvariant(),
+        SentRst = Report,
+        RcvdRst = Report,
+        Comment = FreeText
+    };
+
     async Task LogSelectedQsoAsync()
     {
         if (string.IsNullOrWhiteSpace(DxCall)) return;
-        var entry = new QsoEntry
-        {
-            UtcStart = _qsoStartUtc ?? DateTime.UtcNow.AddSeconds(-30),
-            UtcEnd = DateTime.UtcNow,
-            Mode = Mode,
-            Band = Band,
-            DialMhz = DialMhz,
-            MyCall = MyCall,
-            MyGrid = MyGrid,
-            DxCall = DxCall.Trim().ToUpperInvariant(),
-            DxGrid = DxGrid.Trim().ToUpperInvariant(),
-            SentRst = Report,
-            RcvdRst = Report,
-            Comment = FreeText
-        };
+        // Manual Log QSO button — still show the review dialog.
+        PromptLogQso("Log QSO");
+        await Task.CompletedTask;
+    }
+
+    async Task CommitQsoAsync(QsoEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.DxCall)) return;
+        entry.DxCall = entry.DxCall.Trim().ToUpperInvariant();
+        entry.DxGrid = entry.DxGrid?.Trim().ToUpperInvariant() ?? "";
+        entry.MyCall = entry.MyCall?.Trim().ToUpperInvariant() ?? MyCall;
+        entry.MyGrid = entry.MyGrid?.Trim().ToUpperInvariant() ?? MyGrid;
+        entry.UtcEnd ??= DateTime.UtcNow;
+
         _logStore.Add(entry);
         Log.Insert(0, entry);
         await _external.PublishAsync(entry, _settings);
+        FinishQsoSession();
+        Status = $"Logged {entry.DxCall}";
+    }
+
+    void FinishQsoSession()
+    {
         _qsoStartUtc = null;
-        if (_seq.Phase == QsoPhase.Complete)
+        if (_seq.Phase is QsoPhase.Complete or QsoPhase.Sent73)
         {
             _seq.Reset();
             PhaseLabel = "Idle";
         }
-        Status = $"Logged {entry.DxCall}";
     }
 
     void ExportAdif()
@@ -1712,6 +1932,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return v >= 0 ? $"+{v:00}" : $"{v:00}";
     }
 
+    public void SaveSettingsNow()
+    {
+        _settingsStore.Save(_settings);
+    }
+
+    public void CaptureWindowPlacement(double left, double top, double width, double height, bool maximized)
+    {
+        _settings.WindowLeft = left;
+        _settings.WindowTop = top;
+        _settings.WindowWidth = width;
+        _settings.WindowHeight = height;
+        _settings.WindowMaximized = maximized;
+    }
+
+    public bool TryGetWindowPlacement(
+        out double left, out double top, out double width, out double height, out bool maximized)
+    {
+        left = _settings.WindowLeft ?? double.NaN;
+        top = _settings.WindowTop ?? double.NaN;
+        width = _settings.WindowWidth;
+        height = _settings.WindowHeight;
+        maximized = _settings.WindowMaximized;
+        return width >= 400 && height >= 300;
+    }
+
     public void Dispose()
     {
         _clock.Stop();
@@ -1722,6 +1967,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _playback.Dispose();
         _external.Dispose();
         _ = _cat.DisposeAsync().AsTask();
-        _settingsStore.Save(_settings);
+        SaveSettingsNow();
     }
 }
