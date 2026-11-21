@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using SignalDx.Services;
 
 namespace SignalDx.Ft8;
 
@@ -19,6 +20,10 @@ public static class JtdxPaths
                 candidates.Add(Path.Combine(dir, "jt9.exe"));
             }
         }
+
+        // Installer-bundled decoder (complete package).
+        if (BundledTools.JtdxJt9Path is string bundled)
+            candidates.Add(bundled);
 
         // Prefer contest / builds that expose -8 / -4 FT8/FT4 file mode.
         candidates.Add(@"C:\JTDX_contest\bin\jtdxjt9.exe");

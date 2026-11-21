@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using SignalDx.Services;
 
 namespace SignalDx.Ft8;
 
@@ -24,6 +25,15 @@ public static class Ft8CodePaths
             if (!string.IsNullOrWhiteSpace(dir))
                 candidates.Add(Path.Combine(dir, exeName));
         }
+
+        // Installer-bundled encoder (complete package).
+        if (exeName.Equals("ft8code.exe", StringComparison.OrdinalIgnoreCase) &&
+            BundledTools.Ft8CodePath is string ft8)
+            candidates.Add(ft8);
+        if (exeName.Equals("ft4code.exe", StringComparison.OrdinalIgnoreCase) &&
+            BundledTools.Ft4CodePath is string ft4)
+            candidates.Add(ft4);
+        candidates.Add(Path.Combine(BundledTools.WsjtDir, exeName));
 
         candidates.Add(@"C:\WSJT\wsjtx\bin\" + exeName);
         candidates.Add(@"C:\WS\3.2.0\bin\" + exeName);

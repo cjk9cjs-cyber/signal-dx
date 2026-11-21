@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using SignalDx.Services;
 
 namespace SignalDx.Cat;
 
@@ -39,6 +40,9 @@ public static class HamlibPaths
                 candidates.Add(Path.Combine(dir, unixName));
             }
         }
+
+        // Installer-bundled Hamlib (complete package). HRD remains a separate CAT option.
+        candidates.Add(Path.Combine(BundledTools.HamlibDir, winName));
 
         string? pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrWhiteSpace(pathEnv))

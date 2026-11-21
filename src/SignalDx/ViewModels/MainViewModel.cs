@@ -2024,7 +2024,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void PreferJtdxIfAvailable()
     {
-        if (string.IsNullOrWhiteSpace(_settings.JtdxJt9Path))
+        // Prefer installer-bundled tools when settings are empty or point at a missing file.
+        if (string.IsNullOrWhiteSpace(_settings.JtdxJt9Path) || !File.Exists(_settings.JtdxJt9Path))
         {
             string? found = JtdxPaths.FindJt9();
             if (!string.IsNullOrWhiteSpace(found))
@@ -2034,11 +2035,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _settings.SimulateDecodes = false;
             }
         }
-        else if (_settings.DecoderEngine == DecoderEngine.Simulate &&
-                 _jtdx.IsAvailable(_settings.JtdxJt9Path) &&
-                 _settings.SimulateDecodes)
+
+        if (string.IsNullOrWhiteSpace(_settings.HamlibRigctldPath) || !File.Exists(_settings.HamlibRigctldPath))
         {
-            // Path already saved from a prior find — leave Simulate as the user's last choice.
+            string? rig = HamlibPaths.FindRigctld();
+            if (!string.IsNullOrWhiteSpace(rig))
+                _settings.HamlibRigctldPath = rig;
         }
     }
 

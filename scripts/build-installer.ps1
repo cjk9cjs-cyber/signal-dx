@@ -84,6 +84,9 @@ if (-not $SkipPublish) {
     if (-not (Test-Path -LiteralPath $exe)) {
         throw "Publish succeeded but SignalDx.exe not found in $publishDir"
     }
+
+    # Bundle JTDX decoder, WSJT-X ft8code, and Hamlib (HRD stays optional).
+    & (Join-Path $PSScriptRoot 'stage-bundled-tools.ps1') -Destination (Join-Path $publishDir 'Tools')
 }
 
 $iscc = Find-Iscc

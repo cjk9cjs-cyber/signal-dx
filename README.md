@@ -5,10 +5,10 @@ Windows digi operator console inspired by JTDX — waterfall, FT8/FT4 slot timin
 ## Requirements
 
 - Windows 10/11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- Optional: [Hamlib](https://github.com/Hamlib/Hamlib) `rigctld` for TCP CAT
-- Optional: [JTDX](https://sourceforge.net/projects/jtdx/) (`jtdxjt9.exe`) for real FT8/FT4 decode — contest/newer builds that support `-8`/`-4` file mode (e.g. `C:\JTDX_contest\bin\jtdxjt9.exe`)
-- Optional: Log4OM / Logger32 / HRD / Cloudlog bridge listening for WSJT-X UDP
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (developers only — the installer is self-contained)
+- **Installed build** ships JTDX decode, WSJT-X `ft8code`, and Hamlib CAT tools under `Tools\`
+- Optional: [Ham Radio Deluxe](https://www.hamradiodeluxe.com/) Rig Control if you prefer HRD CAT instead of Hamlib
+- Optional: Log4OM / Logger32 / Cloudlog bridge listening for WSJT-X UDP
 
 ## Run
 
@@ -18,15 +18,22 @@ dotnet run --project src\SignalDx\SignalDx.csproj
 
 ## Windows installer
 
-Build a self-contained `Setup.exe` (bundles .NET 8, no separate runtime install):
+Build a self-contained `Setup.exe` that includes:
+
+- Signal DX + .NET 8 runtime
+- **JTDX** `jtdxjt9` (decode) under `Tools\JTDX`
+- **WSJT-X** `ft8code` (TX encode) under `Tools\WSJT`
+- **Hamlib** `rigctld` (CAT) under `Tools\Hamlib`
+
+HRD is **not** bundled (commercial). Use Settings → CAT → Ham Radio Deluxe if you already have HRD Rig Control.
 
 ```powershell
 .\scripts\build-installer.ps1
 ```
 
-Output: `artifacts\installer\SignalDx-<version>-Setup.exe`
+Build machine needs local JTDX Contest, WSJT-X, and Hamlib installs so `scripts\stage-bundled-tools.ps1` can copy them. Also requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install --id JRSoftware.InnoSetup -e`).
 
-Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install --id JRSoftware.InnoSetup -e`). Use `-FrameworkDependent` for a smaller package that needs the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
+Output: `artifacts\installer\SignalDx-<version>-Setup.exe`
 
 ## Features
 
