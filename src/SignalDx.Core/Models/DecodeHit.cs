@@ -14,7 +14,28 @@ public sealed class DecodeHit
     public string? State { get; init; }
     public bool IsNew { get; init; }
     public bool IsCq { get; init; }
+    /// <summary>Message is addressed to my call (someone calling / working me).</summary>
+    public bool IsToMe { get; set; }
+    /// <summary>Row involves the DX call currently being worked.</summary>
+    public bool IsWorking { get; set; }
     public double? DistanceMiles { get; init; }
+
+    /// <summary>CQ or 73/RR73 — same band-activity background highlight.</summary>
+    public bool IsCqStyleHighlight
+    {
+        get
+        {
+            if (IsCq) return true;
+            string msg = Message ?? "";
+            if (msg.StartsWith('→') || msg.StartsWith("->", System.StringComparison.Ordinal))
+                msg = msg.TrimStart('→', '-', ' ').Trim();
+            var parts = msg.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return false;
+            string last = parts[^1];
+            return last.Equals("73", System.StringComparison.OrdinalIgnoreCase) ||
+                   last.Equals("RR73", System.StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     public string DistanceText =>
         DistanceMiles is double mi ? $"{mi:0}" : "";

@@ -42,6 +42,14 @@ public sealed class StationSettings
     public double RadioMaxWatts { get; set; } = 100;
     public int InputDeviceIndex { get; set; } = -1;
     public int OutputDeviceIndex { get; set; } = -1;
+    /// <summary>Preferred capture device friendly name (preferred over index when present).</summary>
+    public string InputDeviceName { get; set; } = "";
+    /// <summary>Preferred playback device friendly name (preferred over index when present).</summary>
+    public string OutputDeviceName { get; set; } = "";
+    /// <summary>WASAPI endpoint ID for capture — stable across reboots better than index.</summary>
+    public string InputDeviceId { get; set; } = "";
+    /// <summary>WASAPI endpoint ID for playback.</summary>
+    public string OutputDeviceId { get; set; } = "";
     public string WaterfallPalette { get; set; } = "Classic";
     public bool LockTxToRx { get; set; }
 
@@ -58,7 +66,8 @@ public sealed class StationSettings
     public int HamlibModelId { get; set; } = 2037;
     public string HamlibDevice { get; set; } = "COM3";
     public string HamlibRigctldPath { get; set; } = "";
-    public string HamlibMode { get; set; } = "USB";
+    /// <summary>CAT mode for digi TX (Yaesu/Icom USB audio needs DATA-U / PKTUSB, not plain USB).</summary>
+    public string HamlibMode { get; set; } = "DATA-U";
     public bool HamlibAutoStart { get; set; }
     public int HrdPort { get; set; } = 7809;
 
@@ -76,6 +85,11 @@ public sealed class StationSettings
     /// <summary>QRZ.com account for XML callsign lookup (Logbooks tab).</summary>
     public string QrzUsername { get; set; } = "";
     public string QrzPassword { get; set; } = "";
+    /// <summary>Play a sound when a decode is addressed to MyCall.</summary>
+    public bool CallAlertEnabled { get; set; } = true;
+    /// <summary>Optional custom WAV path; empty uses Assets/call-alert.wav beside the exe.</summary>
+    public string CallAlertSoundPath { get; set; } = "";
+
     /// <summary>When true, selecting a decode in Band/RX activity looks up the call on QRZ.</summary>
     public bool QrzLookupOnSelect { get; set; } = true;
     /// <summary>Fill empty Dx Grid from QRZ lookup when available.</summary>
@@ -90,4 +104,23 @@ public sealed class StationSettings
     public double WindowWidth { get; set; }
     public double WindowHeight { get; set; }
     public bool WindowMaximized { get; set; }
+
+    /// <summary>Vertical pane shares (waterfall / activity / log). 0 = XAML defaults.</summary>
+    public double LayoutWaterfallShare { get; set; }
+    public double LayoutActivityShare { get; set; }
+    public double LayoutLogShare { get; set; }
+
+    /// <summary>Horizontal activity pane shares (band / rx / macros). 0 = XAML defaults.</summary>
+    public double LayoutBandShare { get; set; }
+    public double LayoutRxShare { get; set; }
+    public double LayoutMacroShare { get; set; }
+
+    /// <summary>
+    /// User-defined TX macros (label + template with {mycall}/{mygrid}/{dxcall}/{snr}).
+    /// Null = first run → seed CQ DX / CQ EU. Empty list = user cleared them.
+    /// </summary>
+    public List<CustomMacroEntry>? CustomMacros { get; set; }
+
+    /// <summary>CQ hold template (e.g. CQ {mycall} {mygrid} or CQ DX {mycall} {mygrid}).</summary>
+    public string CqTemplate { get; set; } = "CQ {mycall} {mygrid}";
 }

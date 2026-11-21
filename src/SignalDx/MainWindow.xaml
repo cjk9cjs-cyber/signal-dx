@@ -4,14 +4,41 @@
         xmlns:controls="clr-namespace:SignalDx.Controls"
         xmlns:conv="clr-namespace:SignalDx.Converters"
         Title="Signal DX — Digi Console"
+        Icon="Assets/SignalDx.ico"
         Width="1440" Height="920"
         MinWidth="900" MinHeight="560"
         ResizeMode="CanResizeWithGrip"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="Manual">
   <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     <conv:BoolToBrushConverter x:Key="CqHighlight"
                                TrueBrush="#33280A"
                                FalseBrush="Transparent"/>
+    <conv:WorkingCallBrushConverter x:Key="WorkingCallBrushConverter"/>
+    <Style x:Key="ActivityRowStyle" TargetType="DataGridRow">
+      <Setter Property="Background" Value="{Binding IsCqStyleHighlight, Converter={StaticResource CqHighlight}}"/>
+      <Setter Property="Foreground">
+        <Setter.Value>
+          <MultiBinding Converter="{StaticResource WorkingCallBrushConverter}">
+            <Binding Path="IsToMe"/>
+            <Binding Path="IsWorking"/>
+            <Binding Path="DxCall"/>
+            <Binding Path="Message"/>
+            <Binding Path="DataContext.DxCall" RelativeSource="{RelativeSource AncestorType=Window}"/>
+          </MultiBinding>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="ActivityCellStyle" TargetType="DataGridCell">
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Foreground"
+              Value="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=Foreground}"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#1C3A55"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
   </Window.Resources>
 
   <DockPanel Margin="10">
@@ -84,9 +111,13 @@
         </DockPanel>
         <WrapPanel Grid.Row="1" Margin="0,8,0,0">
           <Label Content="DX"/>
-          <TextBox Width="90" Text="{Binding DxCall, UpdateSourceTrigger=PropertyChanged}"/>
+          <TextBox Width="100" Text="{Binding DxCall, UpdateSourceTrigger=PropertyChanged}"
+                   CharacterCasing="Upper"
+                   Foreground="{StaticResource WorkingCallBrush}" CaretBrush="{StaticResource WorkingCallBrush}"
+                   ToolTip="Type a callsign for macros, or pick from Band/RX. Click Apply in TX MACROS to load it."/>
           <Label Content="Grid" Margin="8,0,0,0"/>
-          <TextBox Width="60" Text="{Binding DxGrid, UpdateSourceTrigger=PropertyChanged}"/>
+          <TextBox Width="60" Text="{Binding DxGrid, UpdateSourceTrigger=PropertyChanged}"
+                   CharacterCasing="Upper"/>
           <Label Content="Rpt" Margin="8,0,0,0"/>
           <TextBox Width="50" Text="{Binding Report, UpdateSourceTrigger=PropertyChanged}"/>
           <Button Content="QRZ" Command="{Binding LookupQrzCommand}" Margin="8,0,0,0"
@@ -132,19 +163,29 @@
             <TextBlock Text="{Binding SlotLabel}" HorizontalAlignment="Right"
                        Foreground="{StaticResource MutedBrush}"/>
           </DockPanel>
-          <ProgressBar Value="{Binding SlotProgress}" Maximum="1"/>
+          <ProgressBar Value="{Binding SlotProgress}" Maximum="1"
+                       ToolTip="FT8/FT4 slot progress (red while transmitting)">
+            <ProgressBar.Style>
+              <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
+                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsTransmitting}" Value="True">
+                    <Setter Property="Foreground" Value="#FF4545"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </ProgressBar.Style>
+          </ProgressBar>
         </StackPanel>
       </Grid>
     </Border>
 
-    <Grid>
+    <Grid x:Name="MainLayoutGrid">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="2.2*" MinHeight="80"/>
+        <RowDefinition x:Name="MainRowOps" Height="Auto"/>
+        <RowDefinition x:Name="MainRowWaterfall" Height="2.2*" MinHeight="80"/>
         <RowDefinition Height="6"/>
-        <RowDefinition Height="2.5*" MinHeight="120"/>
-        <RowDefinition Height="6"/>
-        <RowDefinition Height="1.4*" MinHeight="80"/>
+        <RowDefinition x:Name="MainRowActivity" Height="3.5*" MinHeight="160"/>
       </Grid.RowDefinitions>
 
       <!-- Ops row -->
@@ -154,9 +195,16 @@
           <StackPanel Orientation="Horizontal">
             <Button Content="Monitor" Command="{Binding StartMonitorCommand}" Style="{StaticResource AccentButton}"/>
             <Button Content="Stop" Command="{Binding StopMonitorCommand}"/>
-            <Button Content="Enable TX" Command="{Binding EnableTxCommand}" Style="{StaticResource TxButton}"/>
+            <Button Content="Enable TX" Command="{Binding EnableTxCommand}"
+                    Style="{StaticResource EnableTxToggleButton}"
+                    ToolTip="Arm TX (red = armed, blue = idle)"/>
             <Button Content="Halt Tx" Command="{Binding HaltTxCommand}"/>
+            <Button Content="Tune" Command="{Binding TuneCommand}"
+                    Style="{StaticResource TuneToggleButton}"
+                    ToolTip="Continuous tone at Tx Hz for SWR/ALC — max 60s; click again or Halt to stop"/>
             <CheckBox Content="Auto seq" IsChecked="{Binding AutoSequence}" Margin="12,0,0,0"/>
+            <CheckBox Content="Call alert" IsChecked="{Binding CallAlertEnabled}"
+                      ToolTip="Play a sound when a station calls your callsign"/>
             <CheckBox Content="Simulate" IsChecked="{Binding SimulateDecodes}"/>
             <CheckBox Content="TX even" IsChecked="{Binding TxEven}"/>
             <CheckBox Content="Lock Tx=Rx" IsChecked="{Binding LockTxToRx}"/>
@@ -170,9 +218,13 @@
           </StackPanel>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Label Content="In"/>
-            <ComboBox Width="160" ItemsSource="{Binding InputDevices}" SelectedIndex="{Binding SelectedInputIndex}"/>
+            <ComboBox Width="220" ItemsSource="{Binding InputDevices}"
+                      SelectedItem="{Binding SelectedInputDevice, Mode=TwoWay}"
+                      ToolTip="{Binding SelectedInputDevice}"/>
             <Label Content="Out" Margin="8,0,0,0"/>
-            <ComboBox Width="160" ItemsSource="{Binding OutputDevices}" SelectedIndex="{Binding SelectedOutputIndex}"/>
+            <ComboBox Width="220" ItemsSource="{Binding OutputDevices}"
+                      SelectedItem="{Binding SelectedOutputDevice, Mode=TwoWay}"
+                      ToolTip="{Binding SelectedOutputDevice}"/>
           </StackPanel>
         </DockPanel>
       </Border>
@@ -182,8 +234,8 @@
               BorderThickness="1" ClipToBounds="True">
         <Grid>
           <controls:WaterfallControl x:Name="Waterfall"/>
-          <DockPanel Margin="8" IsHitTestVisible="False">
-            <TextBlock DockPanel.Dock="Top" Text="WATERFALL  200–3000 Hz — click a trace to select Rx/Tx"
+          <DockPanel Margin="8,6,8,30" IsHitTestVisible="False">
+            <TextBlock DockPanel.Dock="Top" Text="WATERFALL — click a trace for Rx/Tx  ·  scale bar shows Hz"
                        Foreground="#6F86A8" FontSize="11"/>
             <TextBlock DockPanel.Dock="Bottom" HorizontalAlignment="Right"
                        Text="L-click Rx(+Tx)  ·  R-click/Shift Tx  ·  cyan=Rx  orange=Tx"
@@ -198,13 +250,13 @@
                     ToolTip="Drag to resize waterfall / activity"/>
 
       <!-- Activity panes + macros -->
-      <Grid Grid.Row="3">
+      <Grid x:Name="ActivityLayoutGrid" Grid.Row="3">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="1.4*" MinWidth="160"/>
+          <ColumnDefinition x:Name="ColBand" Width="1.4*" MinWidth="160"/>
           <ColumnDefinition Width="6"/>
-          <ColumnDefinition Width="*" MinWidth="140"/>
+          <ColumnDefinition x:Name="ColRx" Width="*" MinWidth="140"/>
           <ColumnDefinition Width="6"/>
-          <ColumnDefinition Width="0.85*" MinWidth="120"/>
+          <ColumnDefinition x:Name="ColMacros" Width="0.85*" MinWidth="120"/>
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0" Background="{StaticResource PanelBrush}"
@@ -217,11 +269,9 @@
             </DockPanel>
             <DataGrid ItemsSource="{Binding Activity}" SelectedItem="{Binding SelectedActivityDecode}"
                       MouseDoubleClick="Activity_OnMouseDoubleClick"
-                      ToolTip="Double-click a station to load it and Enable TX">
+                      CellStyle="{StaticResource ActivityCellStyle}">
               <DataGrid.RowStyle>
-                <Style TargetType="DataGridRow">
-                  <Setter Property="Background" Value="{Binding IsCq, Converter={StaticResource CqHighlight}}"/>
-                </Style>
+                <StaticResource ResourceKey="ActivityRowStyle"/>
               </DataGrid.RowStyle>
               <DataGrid.Columns>
                 <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}" Width="70"/>
@@ -255,7 +305,10 @@
             </DockPanel>
             <DataGrid ItemsSource="{Binding RxActivity}" SelectedItem="{Binding SelectedRxDecode}"
                       MouseDoubleClick="RxActivity_OnMouseDoubleClick"
-                      ToolTip="Double-click a station to load it and Enable TX">
+                      CellStyle="{StaticResource ActivityCellStyle}">
+              <DataGrid.RowStyle>
+                <StaticResource ResourceKey="ActivityRowStyle"/>
+              </DataGrid.RowStyle>
               <DataGrid.Columns>
                 <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}" Width="70"/>
                 <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}" Width="44"/>
@@ -274,8 +327,43 @@
         <Border Grid.Column="4" Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8">
           <DockPanel>
-            <TextBlock DockPanel.Dock="Top" Text="TX MACROS" FontWeight="SemiBold"
-                       Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+              <TextBlock Text="TX MACROS" FontWeight="SemiBold"
+                         Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+              <Button DockPanel.Dock="Right" Content="Reset" Command="{Binding ResetTxMacrosCommand}"
+                      Padding="8,2" HorizontalAlignment="Right"
+                      ToolTip="Rebuild TX free-text from standard CQ / QSO templates"/>
+            </DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+              <Label Content="Call" VerticalAlignment="Center" Padding="0,0,6,0"/>
+              <Button DockPanel.Dock="Right" Content="Apply" Command="{Binding ApplyManualDxCommand}"
+                      Padding="10,2" Margin="6,0,0,0"
+                      ToolTip="Load typed callsign into macros (Tx1) and free-text"/>
+              <TextBox Width="70" DockPanel.Dock="Right" Margin="6,0,0,0"
+                       Text="{Binding DxGrid, UpdateSourceTrigger=PropertyChanged}"
+                       CharacterCasing="Upper"
+                       ToolTip="Optional DX grid"/>
+              <Label DockPanel.Dock="Right" Content="Grid" VerticalAlignment="Center" Padding="0,0,4,0"/>
+              <TextBox Text="{Binding DxCall, UpdateSourceTrigger=PropertyChanged}"
+                       CharacterCasing="Upper"
+                       VerticalContentAlignment="Center"
+                       ToolTip="Type DX callsign, then Apply (or press Enter)"
+                       KeyDown="ManualDxCall_OnKeyDown"/>
+            </DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+              <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddCustomMacroCommand}"
+                      Padding="10,2" Margin="6,0,0,0"
+                      ToolTip="Save a custom macro (e.g. CQ DX / CQ EU). Right-click a custom button to remove."/>
+              <TextBox DockPanel.Dock="Left" Width="64" Margin="0,0,6,0"
+                       Text="{Binding NewCustomMacroLabel, UpdateSourceTrigger=PropertyChanged}"
+                       CharacterCasing="Upper"
+                       VerticalContentAlignment="Center"
+                       ToolTip="Button label (e.g. CQ DX)"/>
+              <TextBox Text="{Binding NewCustomMacroTemplate, UpdateSourceTrigger=PropertyChanged}"
+                       CharacterCasing="Upper"
+                       VerticalContentAlignment="Center"
+                       ToolTip="Template tokens: {mycall} {mygrid} {dxcall} {snr} — e.g. CQ DX {mycall} {mygrid}"/>
+            </DockPanel>
             <TextBox DockPanel.Dock="Bottom" Margin="0,8,0,0"
                      Text="{Binding FreeText, UpdateSourceTrigger=PropertyChanged}"/>
             <ItemsControl ItemsSource="{Binding Macros}">
@@ -286,47 +374,32 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Button Content="{Binding Label}"
-                          Command="{Binding DataContext.SendMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                  <Button Command="{Binding DataContext.SendMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                           CommandParameter="{Binding}"
                           Style="{StaticResource TxButton}"
-                          Margin="0,0,6,6" Height="34"/>
+                          Margin="0,0,6,6" Height="48"
+                          ToolTip="{Binding Preview}">
+                    <Button.ContextMenu>
+                      <ContextMenu>
+                        <MenuItem Header="Remove custom macro"
+                                  Command="{Binding DataContext.RemoveCustomMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  Visibility="{Binding PlacementTarget.DataContext.IsCustom, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}"/>
+                      </ContextMenu>
+                    </Button.ContextMenu>
+                    <StackPanel>
+                      <TextBlock Text="{Binding Label}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                      <TextBlock Text="{Binding Preview}" FontSize="11" Opacity="0.85"
+                                 HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                 MaxWidth="160"/>
+                    </StackPanel>
+                  </Button>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </DockPanel>
         </Border>
       </Grid>
-
-      <GridSplitter Grid.Row="4" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                    ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
-                    Background="{StaticResource BorderBrush}" ShowsPreview="True"
-                    ToolTip="Drag to resize activity / QSO log"/>
-
-      <!-- QSO log -->
-      <Border Grid.Row="5" Background="{StaticResource PanelBrush}"
-              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-        <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="8,6">
-            <TextBlock Text="QSO LOG" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"/>
-            <Button DockPanel.Dock="Right" Content="Log QSO" Command="{Binding LogQsoCommand}"
-                    Style="{StaticResource AccentButton}" HorizontalAlignment="Right" Padding="10,2"/>
-          </DockPanel>
-          <DataGrid ItemsSource="{Binding Log}">
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="UTC" Binding="{Binding UtcStart, StringFormat=yyyy-MM-dd HH:mm}" Width="130"/>
-              <DataGridTextColumn Header="Call" Binding="{Binding DxCall}" Width="90"/>
-              <DataGridTextColumn Header="Grid" Binding="{Binding DxGrid}" Width="60"/>
-              <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="55"/>
-              <DataGridTextColumn Header="Band" Binding="{Binding Band}" Width="55"/>
-              <DataGridTextColumn Header="Freq" Binding="{Binding DialMhz, StringFormat=0.000}" Width="70"/>
-              <DataGridTextColumn Header="Sent" Binding="{Binding SentRst}" Width="55"/>
-              <DataGridTextColumn Header="Rcvd" Binding="{Binding RcvdRst}" Width="55"/>
-              <DataGridTextColumn Header="Comment" Binding="{Binding Comment}" Width="*"/>
-            </DataGrid.Columns>
-          </DataGrid>
-        </DockPanel>
-      </Border>
     </Grid>
   </DockPanel>
 </Window>

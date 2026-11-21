@@ -221,18 +221,14 @@ public sealed class JtdxDecoderService : IDisposable
         }
 
         var parsed = Ft8MessageBuilder.Parse(message);
+        // DxCall = transmitting / calling station (not the called party).
         string? dxCall = parsed.DxCall;
-        if (!parsed.IsCq && !string.IsNullOrWhiteSpace(station.MyCall))
-        {
-            var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2 &&
-                parts[0].Equals(station.MyCall, StringComparison.OrdinalIgnoreCase))
-                dxCall = parts[1];
-        }
-
         string? dxGrid = parsed.DxGrid;
         bool isCq = parsed.IsCq;
         bool isNew = !string.IsNullOrWhiteSpace(dxCall) && _heard.Add(dxCall);
+        string my = (station.MyCall ?? "").Trim();
+        bool isToMe = !string.IsNullOrEmpty(my) &&
+                      message.StartsWith(my + " ", StringComparison.OrdinalIgnoreCase);
         string? country = CallsignCountry.FromCall(dxCall);
         string? state = UsState.Resolve(country, dxGrid, dxCall);
         double? miles = Maidenhead.DistanceMiles(station.MyGrid, dxGrid);
@@ -251,6 +247,7 @@ public sealed class JtdxDecoderService : IDisposable
             State = state,
             IsNew = isNew,
             IsCq = isCq,
+            IsToMe = isToMe,
             DistanceMiles = miles is double mi ? Math.Round(mi) : null
         };
     }

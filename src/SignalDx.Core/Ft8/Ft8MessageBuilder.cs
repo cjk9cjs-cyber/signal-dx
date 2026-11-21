@@ -14,6 +14,22 @@ public static class Ft8MessageBuilder
         new() { Kind = TxMacroKind.FreeText, Label = "Tx 5", Template = "{dxcall} {mycall} 73" },
     ];
 
+    /// <summary>Seed directed-CQ macros on first run (null CustomMacros in settings).</summary>
+    public static IReadOnlyList<CustomMacroEntry> DefaultCustomMacros { get; } =
+    [
+        new() { Label = "CQ DX", Template = "CQ DX {mycall} {mygrid}" },
+        new() { Label = "CQ EU", Template = "CQ EU {mycall} {mygrid}" },
+    ];
+
+    public static TxMacro ToTxMacro(CustomMacroEntry entry) =>
+        new()
+        {
+            Kind = TxMacroKind.Custom,
+            Label = string.IsNullOrWhiteSpace(entry.Label) ? "Custom" : entry.Label.Trim(),
+            Template = (entry.Template ?? "").Trim(),
+            CustomId = entry.Id
+        };
+
     public static string Build(string template, StationSettings station, string dxCall, string snr)
     {
         return template
@@ -24,6 +40,11 @@ public static class Ft8MessageBuilder
             .Trim();
     }
 
+    /// <summary>
+    /// Parse FT8 text. DxCall is always the transmitting station (the one calling),
+    /// not the station being called — so country/state/distance match the signal on air.
+    /// CQ CALL GRID → CALL.  CALLED CALLER GRID/SNR → CALLER.
+    /// </summary>
     public static (string? DxCall, string? DxGrid, bool IsCq) Parse(string message)
     {
         var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -40,13 +61,18 @@ public static class Ft8MessageBuilder
             return (call, grid, true);
         }
 
-        string? dx = parts[0];
+        // Standard QSO: CALLED CALLER [grid|report|…] — caller is the transmitter.
+        string? dx = parts.Length >= 2 ? parts[1] : parts[0];
         string? g = parts.Length >= 3 && LooksLikeGrid(parts[^1]) ? parts[^1] : null;
         return (dx, g, false);
     }
 
-    static bool LooksLikeGrid(string s) =>
-        s.Length is 4 or 6
-        && char.IsLetter(s[0]) && char.IsLetter(s[1])
-        && char.IsDigit(s[2]) && char.IsDigit(s[3]);
+    static bool LooksLikeGrid(string s)
+    {
+        if (s.Length is not (4 or 6)) return false;
+        if (s.Equals("RR73", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return char.IsLetter(s[0]) && char.IsLetter(s[1])
+               && char.IsDigit(s[2]) && char.IsDigit(s[3]);
+    }
 }

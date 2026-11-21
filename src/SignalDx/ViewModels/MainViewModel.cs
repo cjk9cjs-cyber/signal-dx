@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -24,6 +25,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly QsoLogStore _logStore = new();
     readonly AudioCaptureService _capture = new();
     readonly AudioPlaybackService _playback = new();
+    readonly CallAlertService _callAlert = new();
     readonly SpectrumAnalyzer _spectrum = new(2048);
     readonly SlotTiming _timing = new();
     readonly SimulatedDecoder _sim = new();
@@ -55,18 +57,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     string _utcClockText = "00:00:00";
     string _currentFreqText = "—";
     string _freeText = "";
+    string _newCustomMacroLabel = "CQ DX";
+    string _newCustomMacroTemplate = "CQ DX {mycall} {mygrid}";
     string _slotLabel = "00:00";
     string _phaseLabel = "Idle";
     double _slotProgress;
     double _alcLevel;
     double _rxLevelNorm;
     bool _isTransmitting;
+    bool _isTuning;
+    CancellationTokenSource? _tuneCts;
     bool _rigPtt;
     int _qrzLookupSeq;
     DecodeHit? _selectedActivityDecode;
     DecodeHit? _selectedRxDecode;
     WaterfallControl? _waterfall;
     DateTime? _qsoStartUtc;
+    /// <summary>After Clear on RX Frequency, do not refill from Band Activity history.</summary>
+    bool _rxHistorySuppressed;
+    /// <summary>When true, every TX period sends CQ until a real grid reply arrives (or user picks a station).</summary>
+    bool _holdCq;
+    /// <summary>
+    /// Auto-seq: wait for decode of the prior period before keying this slot,
+    /// so a returned call advances the macro before we TX (instead of sending the old one).
+    /// </summary>
+    bool _deferTxUntilDecode;
+    DateTime _cqSessionUtc;
+    float[]? _txAudioCache;
+    string? _txAudioCacheKey;
     int _selectedHamlibModelIndex;
     string _hamlibModelFilter = "";
     string _hamlibModelCountText = "";
@@ -77,23 +95,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _settings = _settingsStore.Load();
         if (string.IsNullOrWhiteSpace(_settings.AdifPath))
             _settings.AdifPath = AdifExporter.DefaultPath;
-        if (_settings.InputDeviceIndex < 0)
-            _settings.InputDeviceIndex = 0;
+        _settings.MyCall = (_settings.MyCall ?? "").Trim().ToUpperInvariant();
+        _settings.MyGrid = (_settings.MyGrid ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(_settings.CqTemplate))
+            _settings.CqTemplate = "CQ {mycall} {mygrid}";
+        // null = first run → seed directed CQ macros; empty list = user cleared them.
+        _settings.CustomMacros ??= Ft8MessageBuilder.DefaultCustomMacros
+            .Select(m => new CustomMacroEntry { Label = m.Label, Template = m.Template })
+            .ToList();
         PreferJtdxIfAvailable();
 
         foreach (var e in _logStore.Entries)
             Log.Add(e);
 
-        foreach (var m in Ft8MessageBuilder.DefaultMacros)
-            Macros.Add(m);
+        RebuildMacroList();
 
-        InputDevices = new ObservableCollection<string>(
-            AudioCaptureService.ListDevices().Select(d => d.Name));
-        OutputDevices = new ObservableCollection<string>(
-            AudioPlaybackService.ListDevices().Select(d => d.Name));
+        InputDevices = new ObservableCollection<string>();
+        OutputDevices = new ObservableCollection<string>();
+        ReloadAudioDeviceLists(save: false);
         ComPorts = new ObservableCollection<string>();
         CatBackends = new ObservableCollection<string>(Enum.GetNames<CatBackend>());
-        HamlibModes = new ObservableCollection<string>(["USB", "LSB", "PKTUSB", "PKTLSB", "FM", "AM", "CW"]);
+        HamlibModes = new ObservableCollection<string>([
+            "DATA-U", "PKTUSB", "DIGU", "USB-D", "USB", "LSB", "PKTLSB", "DATA-L", "FM", "AM", "CW"
+        ]);
+        if (string.Equals(_settings.HamlibMode, "USB", StringComparison.OrdinalIgnoreCase))
+            _settings.HamlibMode = "DATA-U";
         WaterfallPalettes = new ObservableCollection<string>(WaterfallPalette.Names);
         RefreshPorts();
         ReloadHamlibModels(forceRefresh: false);
@@ -108,15 +134,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SelectedActivityDecode = null;
             SelectedRxDecode = null;
             Activity.Clear();
+            _rxHistorySuppressed = false;
             RebuildRxFilter();
         });
         ClearRxActivityCommand = new RelayCommand(() =>
         {
             SelectedRxDecode = null;
             RxActivity.Clear();
+            _rxHistorySuppressed = true;
+            // Snap RX marker back to TX when the RX frequency pane is cleared.
+            RxHz = TxHz;
         });
-        SendMacroCommand = new RelayCommand(p => SendMacro(p as TxMacro), _ => EnableTx && !_isTransmitting);
-        HaltTxCommand = new RelayCommand(() => _ = HaltTxAsync());
+        SendMacroCommand = new RelayCommand(p => SendMacro(p as MacroDisplayItem), _ => EnableTx && !IsTransmitting);
+        HaltTxCommand = new RelayCommand(() => _ = HaltTxAsync(), () => IsTransmitting || IsTuning);
+        TuneCommand = new RelayCommand(() => _ = ToggleTuneAsync(), () => !IsTransmitting || IsTuning);
         SaveSettingsCommand = new RelayCommand(() => _ = SaveSettingsAsync());
         OpenSettingsCommand = new RelayCommand(OpenSettings);
         ConnectCatCommand = new RelayCommand(() => _ = ConnectCatAsync());
@@ -124,7 +155,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ApplyBandCommand = new RelayCommand(ApplySelectedBand);
         ExportAdifCommand = new RelayCommand(ExportAdif);
         StartCqCommand = new RelayCommand(StartCq);
-        ResetSeqCommand = new RelayCommand(() => { _seq.Reset(); PhaseLabel = "Idle"; });
+        ResetSeqCommand = new RelayCommand(() =>
+        {
+            _holdCq = false;
+            _seq.Reset();
+            PhaseLabel = "Idle";
+        });
+        ResetTxMacrosCommand = new RelayCommand(ResetTxMacros);
+        AddCustomMacroCommand = new RelayCommand(AddCustomMacro);
+        RemoveCustomMacroCommand = new RelayCommand(p => RemoveCustomMacro(p as MacroDisplayItem));
+        ApplyManualDxCommand = new RelayCommand(ApplyManualDxCall);
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
         RefreshHamlibModelsCommand = new RelayCommand(() => ReloadHamlibModels(forceRefresh: true));
         StartRigctldCommand = new RelayCommand(StartRigctld);
@@ -178,17 +218,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>Call after the main window is visible so CAT/audio cannot block first paint.</summary>
     public void StartAfterUiReady()
     {
+        // Restore combo selection after the window binds ItemsSource (Clear during Monitor used to blank it).
+        ReloadAudioDeviceLists(save: false);
+        RestoreAudioDeviceSelectionUi();
         StartMonitor();
+        RestoreAudioDeviceSelectionUi();
         if (_settings.CatBackend != CatBackend.None)
             _ = ConnectCatAsync();
         if (!_capture.IsRunning && !_cat.IsConnected)
             Status = "Set call/grid, connect CAT if used, start monitor, enable TX when ready.";
     }
 
+    public void RestoreAudioDeviceSelectionUi()
+    {
+        Raise(nameof(SelectedInputDevice));
+        Raise(nameof(SelectedOutputDevice));
+        Raise(nameof(SelectedInputIndex));
+        Raise(nameof(SelectedOutputIndex));
+        // ComboBox often ignores the first raise right after ItemsSource changes — nudge again.
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            Raise(nameof(SelectedInputDevice));
+            Raise(nameof(SelectedOutputDevice));
+        }, DispatcherPriority.Loaded);
+    }
+
     public ObservableCollection<DecodeHit> Activity { get; } = [];
     public ObservableCollection<DecodeHit> RxActivity { get; } = [];
     public ObservableCollection<QsoEntry> Log { get; } = [];
-    public ObservableCollection<TxMacro> Macros { get; } = [];
+    public ObservableCollection<MacroDisplayItem> Macros { get; } = [];
     public ObservableCollection<string> InputDevices { get; }
     public ObservableCollection<string> OutputDevices { get; }
     public ObservableCollection<string> ComPorts { get; }
@@ -207,6 +265,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ClearRxActivityCommand { get; }
     public ICommand SendMacroCommand { get; }
     public ICommand HaltTxCommand { get; }
+    public ICommand TuneCommand { get; }
     public ICommand SaveSettingsCommand { get; }
     public ICommand OpenSettingsCommand { get; }
     public ICommand ConnectCatCommand { get; }
@@ -215,6 +274,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ExportAdifCommand { get; }
     public ICommand StartCqCommand { get; }
     public ICommand ResetSeqCommand { get; }
+    public ICommand ResetTxMacrosCommand { get; }
+    public ICommand AddCustomMacroCommand { get; }
+    public ICommand RemoveCustomMacroCommand { get; }
+    public ICommand ApplyManualDxCommand { get; }
     public ICommand RefreshPortsCommand { get; }
     public ICommand RefreshHamlibModelsCommand { get; }
     public ICommand StartRigctldCommand { get; }
@@ -230,22 +293,45 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<string> DecoderEngines { get; } = ["Simulate", "Jtdx"];
 
+    public string AboutProductName => AppInfo.ProductName;
+    public string AboutCreator => AppInfo.CreatorName;
+    public string AboutCreatorCall => AppInfo.CreatorCall;
+    public string AboutVersion => AppInfo.Version;
+    public string AboutDateCreated => AppInfo.DateCreatedDisplay;
+
     public string MyCall
     {
         get => _settings.MyCall;
-        set { _settings.MyCall = value; Raise(); }
+        set
+        {
+            _settings.MyCall = (value ?? "").Trim().ToUpperInvariant();
+            Raise();
+            RefreshMacroPreviews();
+        }
     }
 
     public string MyGrid
     {
         get => _settings.MyGrid;
-        set { _settings.MyGrid = value; Raise(); }
+        set
+        {
+            _settings.MyGrid = value;
+            Raise();
+            RefreshMacroPreviews();
+        }
     }
 
     public string Band
     {
         get => _settings.Band;
-        set { _settings.Band = value; Raise(); }
+        set
+        {
+            bool bandChanged = !string.Equals(_settings.Band, value, StringComparison.OrdinalIgnoreCase);
+            _settings.Band = value;
+            Raise();
+            if (bandChanged)
+                ClearActivityPanesForDialChange();
+        }
     }
 
     public string Mode
@@ -269,13 +355,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             _settings.DialMhz = value;
             string band = BandPlan.BandFromMhz(value);
-            if (!string.Equals(_settings.Band, band, StringComparison.OrdinalIgnoreCase))
+            bool bandChanged = !string.Equals(_settings.Band, band, StringComparison.OrdinalIgnoreCase);
+            if (bandChanged)
             {
                 _settings.Band = band;
                 Raise(nameof(Band));
             }
             Raise();
             RefreshCurrentFreqText();
+            // Only clear Band Activity / RX when hopping bands (e.g. 10m → 20m), not VFO tweaks.
+            if (bandChanged)
+                ClearActivityPanesForDialChange();
         }
     }
 
@@ -284,9 +374,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _settings.TxHz;
         set
         {
+            if (_settings.TxHz == value) return;
             _settings.TxHz = value;
             Raise();
             if (_waterfall is not null) _waterfall.TxHz = value;
+            InvalidateTxAudioCache();
             RebuildRxFilter();
             RefreshCurrentFreqText();
         }
@@ -376,6 +468,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         get => _settings.AutoSequence;
         set { _settings.AutoSequence = value; Raise(); }
+    }
+
+    public bool CallAlertEnabled
+    {
+        get => _settings.CallAlertEnabled;
+        set { _settings.CallAlertEnabled = value; Raise(); }
+    }
+
+    public string CallAlertSoundPath
+    {
+        get => _settings.CallAlertSoundPath;
+        set { _settings.CallAlertSoundPath = value ?? ""; Raise(); }
     }
 
     public bool TxEven
@@ -498,25 +602,58 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string DxCall
     {
         get => _dxCall;
-        set => SetField(ref _dxCall, value);
+        set
+        {
+            string normalized = (value ?? "").Trim().ToUpperInvariant();
+            if (!SetField(ref _dxCall, normalized)) return;
+            RefreshMacroPreviews();
+        }
     }
 
     public string DxGrid
     {
         get => _dxGrid;
-        set => SetField(ref _dxGrid, value);
+        set
+        {
+            string normalized = (value ?? "").Trim().ToUpperInvariant();
+            if (!SetField(ref _dxGrid, normalized)) return;
+            RefreshMacroPreviews();
+        }
     }
 
     public string Report
     {
         get => _report;
-        set => SetField(ref _report, value);
+        set
+        {
+            if (!SetField(ref _report, value)) return;
+            RefreshMacroPreviews();
+        }
     }
 
     public string FreeText
     {
         get => _freeText;
-        set => SetField(ref _freeText, value);
+        set
+        {
+            if (!SetField(ref _freeText, value)) return;
+            RefreshMacroPreviews();
+            InvalidateTxAudioCache();
+            if (EnableTx && !string.IsNullOrWhiteSpace(value))
+                PrimeTxAudioCache(value);
+        }
+    }
+
+    public string NewCustomMacroLabel
+    {
+        get => _newCustomMacroLabel;
+        set => SetField(ref _newCustomMacroLabel, value ?? "");
+    }
+
+    public string NewCustomMacroTemplate
+    {
+        get => _newCustomMacroTemplate;
+        set => SetField(ref _newCustomMacroTemplate, value ?? "");
     }
 
     public string Status
@@ -579,6 +716,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set => SetField(ref _slotProgress, value);
     }
 
+    public bool IsTransmitting
+    {
+        get => _isTransmitting;
+        private set
+        {
+            if (_isTransmitting == value) return;
+            _isTransmitting = value;
+            Raise();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    /// <summary>Continuous tone for SWR/ALC (max 60s); toggle off anytime.</summary>
+    public bool IsTuning
+    {
+        get => _isTuning;
+        private set
+        {
+            if (_isTuning == value) return;
+            _isTuning = value;
+            Raise();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
     /// <summary>Band Activity selection only — must not share SelectedItem with the RX grid (WPF crash).</summary>
     public DecodeHit? SelectedActivityDecode
     {
@@ -615,24 +777,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void ApplySelectedDecode(DecodeHit value)
     {
-        if (!string.IsNullOrWhiteSpace(value.DxCall) && value.IsCq)
-            DxCall = value.DxCall!;
-        else if (!string.IsNullOrWhiteSpace(value.DxCall) &&
-                 !value.DxCall!.Equals(MyCall, StringComparison.OrdinalIgnoreCase))
-            DxCall = value.DxCall;
-        if (!string.IsNullOrWhiteSpace(value.DxGrid))
-            DxGrid = value.DxGrid!;
+        // Always load the transmitting station (caller), never the called party.
+        var (txCall, txGrid, _) = Ft8MessageBuilder.Parse(value.Message);
+        string? call = !string.IsNullOrWhiteSpace(txCall) ? txCall : value.DxCall;
+        if (!string.IsNullOrWhiteSpace(call) &&
+            !call.Equals(MyCall, StringComparison.OrdinalIgnoreCase))
+            DxCall = call;
+
+        string? grid = !string.IsNullOrWhiteSpace(txGrid) ? txGrid : value.DxGrid;
+        if (!string.IsNullOrWhiteSpace(grid))
+            DxGrid = grid!;
+
         RxHz = value.Hz;
         if (LockTxToRx)
             TxHz = value.Hz;
         Report = FormatSnr(value.SnrDb);
         _qsoStartUtc = DateTime.UtcNow;
-        if (AutoSequence && !string.IsNullOrWhiteSpace(DxCall))
-        {
-            _seq.StartWorking(DxCall, DxGrid, Report);
-            PhaseLabel = _seq.Phase.ToString();
-            FreeText = _seq.NextTxMessage(_settings) ?? FreeText;
-        }
+        // Single-click only loads call/Hz/SNR into the UI.
+        // Never StartWorking here — that resets mid-QSO (e.g. after a CQ reply) back to the grid call.
+        // Double-click / EnableTxForStation arms a new station; CQ answer advances the sequencer itself.
         if (QrzLookupOnSelect && !string.IsNullOrWhiteSpace(DxCall))
             _ = LookupQrzAsync(DxCall, openBrowser: false); // API enrich only — don't pop a browser on every select
     }
@@ -682,32 +845,279 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Watch the station on RX only — leave TX where it is for split operation.
+        // Watch them on RX only — never move Tx Hz unless the operator (or Lock Tx=Rx) changes it.
         RxHz = hit.Hz;
 
-        // Ensure we have a TX message even if auto-seq was off.
+        // Reply in the opposite 15s period from the decode we just heard.
+        TxEven = !IsEvenPeriod(hit.Utc);
+
+        // User explicitly chose a station — leave CQ hold.
+        _holdCq = false;
+
+        // Arm next TX from the decode content (CQ→Tx1, grid→Tx2, report→Tx3, R-report→Tx4).
+        // Never blindly StartWorking mid-QSO — that rewound to Tx1 after their signal report.
         if (string.IsNullOrWhiteSpace(FreeText) || AutoSequence)
         {
-            _seq.StartWorking(DxCall, DxGrid, Report);
+            bool sameMidQso =
+                !string.IsNullOrWhiteSpace(_seq.DxCall) &&
+                _seq.DxCall.Equals(DxCall, StringComparison.OrdinalIgnoreCase) &&
+                _seq.Phase is QsoPhase.CallingDx or QsoPhase.SentReport
+                    or QsoPhase.SentRogerReport or QsoPhase.Sent73
+                    or QsoPhase.SendingSeventyThree;
+
+            if (sameMidQso)
+            {
+                // Already working them — advance from this decode if it is a new reply.
+                _seq.TryAdvanceFromDecode(hit.Message, _settings);
+            }
+            else
+            {
+                _seq.ArmFromDecode(hit.Message, _settings, Report);
+                if (string.IsNullOrWhiteSpace(_seq.DxCall))
+                    _seq.StartWorking(DxCall, DxGrid, Report);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_seq.DxCall))
+                DxCall = _seq.DxCall;
+            if (!string.IsNullOrWhiteSpace(_seq.DxGrid))
+                DxGrid = _seq.DxGrid;
+            if (_seq.Phase is QsoPhase.SentReport or QsoPhase.SentRogerReport)
+            {
+                Report = FormatSnr(hit.SnrDb);
+                _seq.Report = Report;
+            }
+
             PhaseLabel = _seq.Phase.ToString();
             FreeText = _seq.NextTxMessage(_settings) ?? FreeText;
         }
 
         EnableTx = true;
+        InvalidateTxAudioCache();
+        PrimeTxAudioCache(FreeText);
         RebuildRxFilter();
-        Status = $"TX armed → {DxCall} @ {TxHz} Hz  ({FreeText})";
+
+        // If we are already in the correct odd/even period to call them, key now
+        // (don't wait for the next slot roll). Too late in the slot → arm for next period.
+        if (TryStartTxNowIfOurSlot())
+            return;
+
+        string period = TxEven ? "even" : "odd";
+        Status = $"TX armed → {DxCall} @ {TxHz} Hz ({period})  ({FreeText})";
     }
 
-    public int SelectedInputIndex
+    /// <summary>
+    /// Start transmitting immediately when the current FT8/FT4 period matches TxEven
+    /// and we still have enough time left in the slot for a full cycle.
+    /// </summary>
+    bool TryStartTxNowIfOurSlot(double? maxLateSec = null)
     {
-        get => Math.Max(0, _settings.InputDeviceIndex);
-        set { _settings.InputDeviceIndex = value; Raise(); }
+        if (!EnableTx || IsTransmitting) return false;
+        if (string.IsNullOrWhiteSpace(FreeText) && !_holdCq &&
+            _seq.Phase is QsoPhase.Idle or QsoPhase.Complete)
+            return false;
+
+        _timing.Tick(DateTime.UtcNow);
+        if (TxEven != _timing.IsEvenSlot)
+            return false;
+
+        // FT8 ~12.6s / FT4 ~6s — starting too late yields incomplete cycles.
+        // Post-decode path uses a higher limit because decode consumes the start of the slot.
+        double maxLate = maxLateSec ?? (Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 1.2 : 2.5);
+        if (_timing.SecondsIntoSlot > maxLate)
+            return false;
+
+        string msg;
+        if (_holdCq)
+        {
+            msg = BuildCqMessage();
+        }
+        else if (AutoSequence)
+        {
+            msg = _seq.NextTxMessage(_settings) ?? FreeText;
+        }
+        else
+        {
+            msg = FreeText;
+        }
+
+        if (string.IsNullOrWhiteSpace(msg)) return false;
+
+        FreeText = msg;
+        PrimeTxAudioCache(FreeText);
+        string period = TxEven ? "even" : "odd";
+        Status = $"TX now ({period}) → {DxCall}: {FreeText}";
+        _ = TransmitMessageAsync(FreeText);
+        return true;
     }
 
-    public int SelectedOutputIndex
+    static bool IsEvenPeriod(DateTime utc)
     {
-        get => Math.Max(0, _settings.OutputDeviceIndex);
-        set { _settings.OutputDeviceIndex = value; Raise(); }
+        long slot = (long)(utc.ToUniversalTime() - DateTime.UnixEpoch).TotalSeconds / 15;
+        return (slot & 1) == 0;
+    }
+
+    public int SelectedInputIndex =>
+        Math.Max(0, Math.Min(_settings.InputDeviceIndex, Math.Max(0, InputDevices.Count - 1)));
+
+    public int SelectedOutputIndex =>
+        Math.Max(0, Math.Min(_settings.OutputDeviceIndex, Math.Max(0, OutputDevices.Count - 1)));
+
+    /// <summary>Bound to the In combo — persist by friendly name so order changes don't lose the device.</summary>
+    public string SelectedInputDevice
+    {
+        get => ResolveDisplayName(InputDevices, _settings.InputDeviceName, _settings.InputDeviceIndex);
+        set
+        {
+            // ComboBox clears selection while ItemsSource refreshes — never wipe the saved name.
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (string.Equals(_settings.InputDeviceName, value, StringComparison.OrdinalIgnoreCase) &&
+                _settings.InputDeviceIndex == IndexOfDevice(InputDevices, value))
+                return;
+            _settings.InputDeviceName = value;
+            _settings.InputDeviceIndex = IndexOfDevice(InputDevices, value);
+            SyncInputDeviceIdFromName(value);
+            Raise();
+            Raise(nameof(SelectedInputIndex));
+            SaveSettingsNow();
+        }
+    }
+
+    /// <summary>Bound to the Out combo — persist by friendly name.</summary>
+    public string SelectedOutputDevice
+    {
+        get => ResolveDisplayName(OutputDevices, _settings.OutputDeviceName, _settings.OutputDeviceIndex);
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (string.Equals(_settings.OutputDeviceName, value, StringComparison.OrdinalIgnoreCase) &&
+                _settings.OutputDeviceIndex == IndexOfDevice(OutputDevices, value))
+                return;
+            _settings.OutputDeviceName = value;
+            _settings.OutputDeviceIndex = IndexOfDevice(OutputDevices, value);
+            SyncOutputDeviceIdFromName(value);
+            Raise();
+            Raise(nameof(SelectedOutputIndex));
+            SaveSettingsNow();
+        }
+    }
+
+    void ReloadAudioDeviceLists(bool save)
+    {
+        var capture = AudioCaptureService.ListDevices();
+        var render = AudioPlaybackService.ListDevices();
+
+        ReplaceCollection(InputDevices, capture.Select(d => d.Name));
+        ReplaceCollection(OutputDevices, render.Select(d => d.Name));
+
+        int inIdx = ResolveDeviceIndex(InputDevices, _settings.InputDeviceName, _settings.InputDeviceIndex);
+        if (inIdx >= 0 && inIdx < capture.Count)
+        {
+            _settings.InputDeviceIndex = inIdx;
+            _settings.InputDeviceName = capture[inIdx].Name;
+            if (!string.IsNullOrWhiteSpace(capture[inIdx].Id))
+                _settings.InputDeviceId = capture[inIdx].Id;
+        }
+
+        int outIdx = ResolveDeviceIndex(OutputDevices, _settings.OutputDeviceName, _settings.OutputDeviceIndex);
+        if (outIdx >= 0 && outIdx < render.Count)
+        {
+            _settings.OutputDeviceIndex = outIdx;
+            _settings.OutputDeviceName = render[outIdx].Name;
+            if (!string.IsNullOrWhiteSpace(render[outIdx].Id))
+                _settings.OutputDeviceId = render[outIdx].Id;
+        }
+
+        if (save)
+            SaveSettingsNow();
+    }
+
+    static void ReplaceCollection(ObservableCollection<string> target, IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        if (target.Count == list.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (!string.Equals(target[i], list[i], StringComparison.Ordinal))
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) return;
+        }
+
+        target.Clear();
+        foreach (var n in list)
+            target.Add(n);
+    }
+
+    void SyncInputDeviceIdFromName(string name)
+    {
+        foreach (var d in AudioCaptureService.ListDevices())
+        {
+            if (d.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                _settings.InputDeviceId = d.Id;
+                return;
+            }
+        }
+    }
+
+    void SyncOutputDeviceIdFromName(string name)
+    {
+        foreach (var d in AudioPlaybackService.ListDevices())
+        {
+            if (d.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                _settings.OutputDeviceId = d.Id;
+                return;
+            }
+        }
+    }
+
+    static string ResolveDisplayName(IReadOnlyList<string> devices, string? preferredName, int savedIndex)
+    {
+        if (devices.Count == 0) return "";
+        int idx = ResolveDeviceIndex(devices, preferredName, savedIndex);
+        if (idx < 0 || idx >= devices.Count) return devices[0];
+        return devices[idx];
+    }
+
+    static int IndexOfDevice(IReadOnlyList<string> devices, string name)
+    {
+        for (int i = 0; i < devices.Count; i++)
+        {
+            if (devices[i].Equals(name, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return devices.Count > 0 ? 0 : -1;
+    }
+
+    static int ResolveDeviceIndex(IReadOnlyList<string> devices, string? preferredName, int savedIndex)
+    {
+        if (devices.Count == 0) return -1;
+
+        if (!string.IsNullOrWhiteSpace(preferredName))
+        {
+            for (int i = 0; i < devices.Count; i++)
+            {
+                if (devices[i].Equals(preferredName, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+            // Partial match — Windows sometimes appends suffixes after reboot.
+            for (int i = 0; i < devices.Count; i++)
+            {
+                if (devices[i].Contains(preferredName, StringComparison.OrdinalIgnoreCase) ||
+                    preferredName.Contains(devices[i], StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+        }
+
+        if (savedIndex >= 0 && savedIndex < devices.Count)
+            return savedIndex;
+        return 0;
     }
 
     int _selectedBandPresetIndex = -1;
@@ -1129,28 +1539,50 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            // Refresh device list — WASAPI indices can change after sleep / cable changes.
-            var devices = AudioCaptureService.ListDevices();
-            InputDevices.Clear();
-            foreach (var d in devices)
-                InputDevices.Add(d.Name);
+            string preferName = _settings.InputDeviceName;
+            string preferId = _settings.InputDeviceId;
+            int preferIdx = _settings.InputDeviceIndex;
 
-            int idx = InputDevices.Count == 0 ? -1 : Math.Min(SelectedInputIndex, InputDevices.Count - 1);
-            if (idx < 0 || InputDevices.Count == 0)
+            // Refresh names without blanking the combo when nothing changed.
+            ReloadAudioDeviceLists(save: false);
+
+            var devices = AudioCaptureService.ListDevices();
+            if (devices.Count == 0)
             {
                 Status = "No capture device — spectrum idle / sim only.";
+                RestoreAudioDeviceSelectionUi();
                 return;
             }
 
-            SelectedInputIndex = idx;
-            _capture.Start(idx);
-            Status = $"Monitoring: {InputDevices[idx]}";
-            AppendDecodeLog($"Monitor start idx={idx} device={InputDevices[idx]}");
+            int idx = ResolveDeviceIndex(InputDevices, preferName, preferIdx);
+            if (!string.IsNullOrWhiteSpace(preferId))
+            {
+                for (int i = 0; i < devices.Count; i++)
+                {
+                    if (devices[i].Id.Equals(preferId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        idx = i;
+                        break;
+                    }
+                }
+            }
+
+            idx = Math.Clamp(idx, 0, devices.Count - 1);
+            _settings.InputDeviceIndex = idx;
+            _settings.InputDeviceName = devices[idx].Name;
+            _settings.InputDeviceId = devices[idx].Id;
+            SaveSettingsNow();
+
+            _capture.Start(idx, preferredName: _settings.InputDeviceName, preferredId: _settings.InputDeviceId);
+            RestoreAudioDeviceSelectionUi();
+            Status = $"Monitoring: {_settings.InputDeviceName}";
+            AppendDecodeLog($"Monitor start idx={idx} device={_settings.InputDeviceName} id={_settings.InputDeviceId}");
         }
         catch (Exception ex)
         {
             Status = $"Monitor failed: {ex.Message}";
             AppendDecodeLog($"Monitor failed: {ex}");
+            RestoreAudioDeviceSelectionUi();
         }
     }
 
@@ -1271,6 +1703,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     long _lastAppliedDialHz;
+
+    /// <summary>Clear Band Activity and RX Frequency when dial/band frequency changes.</summary>
+    void ClearActivityPanesForDialChange()
+    {
+        SelectedActivityDecode = null;
+        SelectedRxDecode = null;
+        Activity.Clear();
+        RxActivity.Clear();
+        _rxHistorySuppressed = false;
+        RxHz = TxHz;
+    }
 
     /// <summary>Set operator DialMhz/Band from a CAT frequency (Hz).</summary>
     void ApplyDialFromRadio(long? frequencyHz)
@@ -1401,19 +1844,44 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(Mode));
         Band = p.Band;
         DialMhz = p.DialMhz;
-        if (_settings.CatFollowDial && _cat.IsConnected)
-            _ = _cat.SetDialMhzAsync(DialMhz);
-        Status = $"Band {p.Band} {p.Mode} @ {p.DialMhz:0.0000} MHz";
+        if (_cat.IsConnected)
+            _ = PushBandToRadioAsync(p);
+        else
+            Status = $"Band {p.Band} {p.Mode} @ {p.DialMhz:0.0000} MHz (CAT not connected)";
+    }
+
+    async Task PushBandToRadioAsync(BandPreset p)
+    {
+        try
+        {
+            await _cat.SetDialMhzAsync(p.DialMhz);
+            if (!string.IsNullOrWhiteSpace(HamlibMode))
+                await _cat.SetModeAsync(HamlibMode);
+            await _cat.RefreshAsync();
+            Status = $"Band {p.Band} {p.Mode} → radio {p.DialMhz:0.0000} MHz";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Band {p.Band} set locally; radio failed: {ex.Message}";
+        }
     }
 
     void StartCq()
     {
+        SelectedActivityDecode = null;
+        SelectedRxDecode = null;
+        _holdCq = true;
+        _cqSessionUtc = DateTime.UtcNow;
         _seq.StartCq();
         PhaseLabel = _seq.Phase.ToString();
-        FreeText = _seq.NextTxMessage(_settings) ?? FreeText;
         DxCall = "";
-        if (EnableTx)
-            _ = TransmitMessageAsync(FreeText);
+        DxGrid = "";
+        FreeText = BuildCqMessage();
+        // Arm for the next matching period — do not key mid-slot (late TX is hard to complete QSOs with).
+        EnableTx = true;
+        InvalidateTxAudioCache();
+        PrimeTxAudioCache(FreeText);
+        Status = $"CQ hold ON ({(TxEven ? "even" : "odd")}) → {FreeText}";
     }
 
     void OnClock(object? sender, EventArgs e)
@@ -1426,27 +1894,75 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshCurrentFreqText();
 
         if (_timing.JustRolled)
+        {
+            bool ourSlot = EnableTx && TxEven == _timing.IsEvenSlot && !IsTransmitting;
+            // Auto-seq: decode first — a reply in the prior period must advance the macro
+            // before we key, otherwise we re-send CQ/Tx1 and wait another cycle.
+            if (ourSlot && AutoSequence)
+                _deferTxUntilDecode = true;
+
             TriggerSlotDecode();
 
-        if (_timing.JustRolled && EnableTx && !_isTransmitting)
-        {
-            bool ourSlot = TxEven == _timing.IsEvenSlot;
-            if (!ourSlot) return;
+            if (_deferTxUntilDecode)
+                return; // FinishDeferredTxAfterDecode() keys after decode
 
-            if (AutoSequence)
-            {
-                string? next = _seq.NextTxMessage(_settings);
-                if (!string.IsNullOrWhiteSpace(next) && _seq.Phase is not QsoPhase.Idle and not QsoPhase.Complete)
-                {
-                    FreeText = next;
-                    _ = TransmitMessageAsync(next);
-                    return;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(FreeText))
-                _ = TransmitMessageAsync(FreeText);
+            if (ourSlot)
+                TransmitArmedMessage();
         }
+    }
+
+    /// <summary>TX whatever is currently armed (CQ hold / seq / FreeText).</summary>
+    void TransmitArmedMessage()
+    {
+        if (!EnableTx || IsTransmitting) return;
+        if (TxEven != _timing.IsEvenSlot) return;
+
+        if (_holdCq)
+        {
+            string cq = BuildCqMessage();
+            FreeText = cq;
+            PhaseLabel = "CallingCq";
+            _ = TransmitMessageAsync(cq);
+            return;
+        }
+
+        if (AutoSequence)
+        {
+            string? next = _seq.NextTxMessage(_settings);
+            if (!string.IsNullOrWhiteSpace(next) && _seq.Phase is not QsoPhase.Idle and not QsoPhase.Complete)
+            {
+                FreeText = next;
+                _ = TransmitMessageAsync(next);
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(FreeText))
+            _ = TransmitMessageAsync(FreeText);
+    }
+
+    /// <summary>
+    /// After decode: if we deferred TX for this slot, key now with the (possibly advanced) macro.
+    /// Allows a later start than double-click because decode ate time at the beginning of the period.
+    /// </summary>
+    void FinishDeferredTxAfterDecode()
+    {
+        if (!_deferTxUntilDecode) return;
+        _deferTxUntilDecode = false;
+
+        if (!EnableTx) return;
+        // Already keyed (e.g. double-click) — leave status alone.
+        if (IsTransmitting) return;
+
+        _timing.Tick(DateTime.UtcNow);
+        if (TxEven != _timing.IsEvenSlot) return;
+
+        // Decode typically finishes 1–4s into our period — still start if we can get most of the cycle out.
+        if (TryStartTxNowIfOurSlot(maxLateSec: Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 2.0 : 5.0))
+            return;
+
+        string period = TxEven ? "even" : "odd";
+        Status = $"TX armed ({period}) next slot → {FreeText}";
     }
 
     void OnSpectrumTick(object? sender, EventArgs e)
@@ -1544,6 +2060,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 Status = "JTDX still decoding previous slot…";
                 AppendDecodeLog("skip: decoder busy");
+                FinishDeferredTxAfterDecode(); // don't skip our TX slot entirely
                 return;
             }
             _ = DecodeWithJtdxAsync();
@@ -1552,7 +2069,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (SimulateDecodes || _settings.DecoderEngine == DecoderEngine.Simulate ||
             !_jtdx.IsAvailable(_settings.JtdxJt9Path))
+        {
             InjectSimulatedDecodes();
+            return;
+        }
+
+        FinishDeferredTxAfterDecode();
     }
 
     async Task DecodeWithJtdxAsync()
@@ -1567,6 +2089,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             Status = "JTDX: Start Monitor and select the radio/VAC input device.";
             AppendDecodeLog("abort: monitor not running");
+            FinishDeferredTxAfterDecode();
             return;
         }
 
@@ -1580,6 +2103,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             Status =
                 $"JTDX: only {gotSec:0.0}s buffered (need ~{slotSec:0}s) — Start Monitor, pick VAC/radio input, wait one slot.";
+            FinishDeferredTxAfterDecode();
             return;
         }
 
@@ -1597,16 +2121,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch (InvalidOperationException ex) when (ex.Message.Contains("busy", StringComparison.OrdinalIgnoreCase))
         {
             Status = "JTDX still decoding previous slot…";
+            FinishDeferredTxAfterDecode();
         }
         catch (OperationCanceledException)
         {
             // disposed / shutdown
+            _deferTxUntilDecode = false;
         }
         catch (Exception ex)
         {
             if (seq != _jtdxDecodeSeq) return;
             AppendDecodeLog($"error: {ex}");
             Status = $"JTDX decode failed: {ex.Message}";
+            FinishDeferredTxAfterDecode();
         }
     }
 
@@ -1636,31 +2163,292 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void PushDecodes(IReadOnlyList<DecodeHit> hits, string engineLabel, DateTime utc)
     {
-        Application.Current.Dispatcher.BeginInvoke(() =>
+        void body()
         {
+            bool callAlert = false;
+            bool autoReplied = false;
             foreach (var hit in hits)
             {
+                MarkWorkingFlags(hit);
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);
 
-                if (AutoSequence && _seq.TryAdvanceFromDecode(hit.Message, _settings))
-                {
-                    PhaseLabel = _seq.Phase.ToString();
-                    if (!string.IsNullOrWhiteSpace(_seq.DxCall))
-                        DxCall = _seq.DxCall;
-                    if (!string.IsNullOrWhiteSpace(_seq.DxGrid))
-                        DxGrid = _seq.DxGrid;
-                    FreeText = _seq.NextTxMessage(_settings) ?? FreeText;
-                    if (_seq.Phase == QsoPhase.Complete)
-                        PromptLogQso("QSO complete");
-                }
+                if (hit.IsToMe)
+                    callAlert = true;
+
+                // Auto-seq returns the correct next macro when a transmitter answers.
+                // Double-click (EnableTxForStation) remains available as a manual override.
+                if (AutoSequence && TryAutoReplyToDecode(hit))
+                    autoReplied = true;
             }
 
-            RebuildRxFilter();
+            UpdateRxActivityAfterNewHits(hits);
             _external.ReportDecodes(hits, _settings);
-            Status = $"Decoded {hits.Count} ({engineLabel}) @ {utc:HH:mm:ss} UTC";
-        });
+            if (callAlert && CallAlertEnabled)
+                _callAlert.Play(CallAlertSoundPath);
+            if (!autoReplied && !_holdCq && !_deferTxUntilDecode)
+                Status = $"Decoded {hits.Count} ({engineLabel}) @ {utc:HH:mm:ss} UTC";
+
+            // Key this slot now with the (possibly advanced) macro — do not wait another cycle.
+            FinishDeferredTxAfterDecode();
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+            body();
+        else
+            dispatcher.BeginInvoke(body);
+    }
+
+    /// <summary>
+    /// When Auto seq is on: automatically load the next TX macro if a station returns our call
+    /// (CQ reply, or reply while we are working them). Returns true if FreeText/phase changed.
+    /// </summary>
+    bool TryAutoReplyToDecode(DecodeHit hit)
+    {
+        if (!hit.IsToMe) return false;
+
+        bool midQso = _seq.Phase is QsoPhase.CallingDx or QsoPhase.SentReport
+            or QsoPhase.SentRogerReport or QsoPhase.Sent73
+            or QsoPhase.SendingSeventyThree;
+
+        var qsoToken = AutoSequencer.ExtractQsoToken(hit.Message);
+
+        // --- CQ: first grid reply only while actually calling CQ — never steal a mid-QSO. ---
+        // (IsFreeTextCq alone used to let a second caller yank us off Tx2 after their R-report.)
+        if ((_holdCq || _seq.Phase == QsoPhase.CallingCq) && !midQso)
+        {
+            if (TryAcceptCqReply(hit))
+            {
+                _holdCq = false;
+                Report = FormatSnr(hit.SnrDb);
+                _seq.Report = Report;
+                _seq.StartCq();
+                _seq.TryAdvanceFromDecode(hit.Message, _settings);
+                ApplySeqToUi(hit, $"CQ answered by {_seq.DxCall} → {_seq.NextTxMessage(_settings)}");
+                return true;
+            }
+        }
+
+        // --- Working station sent R-xx / RRR while we are on Tx1/Tx2/Tx3 → RR73 (Tx4) ---
+        if (IsDecodeFromWorkingStation(hit) &&
+            (qsoToken is Ft8QsoToken.RogerReport or Ft8QsoToken.Rrr) &&
+            (_seq.Phase is QsoPhase.CallingDx or QsoPhase.SentReport or QsoPhase.SentRogerReport))
+        {
+            if (!_seq.TryAdvanceFromDecode(hit.Message, _settings) ||
+                _seq.Phase is not (QsoPhase.Sent73 or QsoPhase.Complete))
+            {
+                _seq.QueueRr73(
+                    string.IsNullOrWhiteSpace(_seq.DxCall) ? DxCall : null,
+                    DxGrid, Report);
+            }
+            ApplySeqToUi(hit, $"{_seq.DxCall} sent R-report → Tx4 {_seq.NextTxMessage(_settings)}");
+            return true;
+        }
+
+        // --- Their 73 / RR73: Tx4 (RR73) reply, or end QSO if we already sent RR73 ---
+        if (IsDecodeFromWorkingStation(hit) &&
+            (qsoToken is Ft8QsoToken.SeventyThree or Ft8QsoToken.Rr73))
+        {
+            var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            string their = parts.Length >= 2 ? parts[1] : DxCall;
+
+            // Already queued/sent RR73 or plain 73 — their farewell ends the call.
+            if (_seq.Phase is QsoPhase.Sent73 or QsoPhase.SendingSeventyThree)
+            {
+                if (!_seq.TryAdvanceFromDecode(hit.Message, _settings))
+                    _seq.MarkComplete();
+                ApplySeqToUi(hit, $"QSO complete with {_seq.DxCall}");
+                PromptLogQso("QSO complete");
+                return true;
+            }
+
+            // They sent plain 73 (or RR73 while we were still on Rxx/report) → reply Tx4 RR73.
+            if (qsoToken is Ft8QsoToken.SeventyThree ||
+                (qsoToken is Ft8QsoToken.Rr73 &&
+                 (_seq.Phase is QsoPhase.SentReport or QsoPhase.SentRogerReport or QsoPhase.CallingDx)))
+            {
+                if (string.IsNullOrWhiteSpace(_seq.DxCall))
+                    _seq.StartWorking(
+                        string.IsNullOrWhiteSpace(DxCall) ? their : DxCall,
+                        DxGrid, Report, forceRestart: true);
+                _seq.QueueRr73(
+                    string.IsNullOrWhiteSpace(_seq.DxCall) ? their : null,
+                    DxGrid, Report);
+                ApplySeqToUi(hit, $"{_seq.DxCall} sent 73 → Tx4 {_seq.NextTxMessage(_settings)}");
+                return true;
+            }
+
+            // Their RR73 while not mid-farewell TX → done.
+            if (qsoToken is Ft8QsoToken.Rr73)
+            {
+                _seq.MarkComplete();
+                ApplySeqToUi(hit, $"QSO complete with {_seq.DxCall}");
+                PromptLogQso("QSO complete");
+                return true;
+            }
+        }
+
+        // --- Already working this transmitter: advance Tx2/Tx3/Tx4 from their reply ---
+        if (IsDecodeFromWorkingStation(hit) && midQso)
+        {
+            if (!_seq.TryAdvanceFromDecode(hit.Message, _settings))
+                return false;
+
+            if (_seq.Phase is QsoPhase.SentReport or QsoPhase.SentRogerReport)
+            {
+                Report = FormatSnr(hit.SnrDb);
+                _seq.Report = Report;
+            }
+
+            ApplySeqToUi(hit, $"{_seq.DxCall} → {_seq.Phase}: {_seq.NextTxMessage(_settings)}");
+            if (_seq.Phase == QsoPhase.Complete)
+                PromptLogQso("QSO complete");
+            return true;
+        }
+
+        // --- New caller while idle/complete (Enable TX armed): auto-return their call ---
+        // Never while mid-QSO — another station's grid must not yank us off Tx2/R-report.
+        if (EnableTx && !midQso &&
+            (_seq.Phase is QsoPhase.Idle or QsoPhase.Complete) &&
+            LooksLikeIncomingCall(hit))
+        {
+            Report = FormatSnr(hit.SnrDb);
+            _seq.ArmFromDecode(hit.Message, _settings, Report);
+            if (string.IsNullOrWhiteSpace(_seq.DxCall))
+                return false;
+
+            // Reply in the opposite period from their transmission.
+            TxEven = !IsEvenPeriod(hit.Utc);
+            ApplySeqToUi(hit, $"Auto-reply {_seq.DxCall} → {_seq.NextTxMessage(_settings)}");
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool MessageEndsWith73(string message)
+    {
+        var token = AutoSequencer.ExtractQsoToken(message);
+        return token is Ft8QsoToken.SeventyThree or Ft8QsoToken.Rr73;
+    }
+
+    void ApplySeqToUi(DecodeHit hit, string status)
+    {
+        PhaseLabel = _seq.Phase.ToString();
+        if (!string.IsNullOrWhiteSpace(_seq.DxCall))
+            DxCall = _seq.DxCall;
+        if (!string.IsNullOrWhiteSpace(_seq.DxGrid))
+            DxGrid = _seq.DxGrid;
+
+        RxHz = hit.Hz;
+        EnsureInRxActivity(hit);
+
+        string? next = _seq.NextTxMessage(_settings);
+        if (_seq.Phase == QsoPhase.Complete)
+        {
+            // Do not keep transmitting the previous macro (e.g. Tx3 Rxx) after the QSO ends.
+            EnableTx = false;
+            _deferTxUntilDecode = false;
+            InvalidateTxAudioCache();
+            Status = status;
+            RefreshMacroPreviews();
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(next))
+            FreeText = next;
+        EnableTx = true;
+        InvalidateTxAudioCache();
+        PrimeTxAudioCache(FreeText);
+        Status = status;
+        RefreshMacroPreviews();
+
+        // Key immediately when their 73 advanced us to RR73 (Tx4) in our period —
+        // do not wait for another full even/odd cycle.
+        TryStartTxNowIfOurSlot(
+            maxLateSec: Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 2.5 : 6.0);
+    }
+
+    bool IsFreeTextCq() =>
+        FreeText.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Incoming call to us with grid or report (someone initiating / returning).</summary>
+    bool LooksLikeIncomingCall(DecodeHit hit)
+    {
+        var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return false;
+        if (!parts[0].Equals(MyCall.Trim(), StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (parts[1].Equals(MyCall.Trim(), StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var token = AutoSequencer.ExtractQsoToken(hit.Message);
+        return token is Ft8QsoToken.Grid or Ft8QsoToken.Report or Ft8QsoToken.RogerReport;
+    }
+
+    /// <summary>True when decode is addressed to us from the station we are currently working.</summary>
+    bool IsDecodeFromWorkingStation(DecodeHit hit)
+    {
+        string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
+        var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+
+        string my = MyCall.Trim();
+        if (!parts[0].Equals(my, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string their = parts[1];
+        if (!string.IsNullOrWhiteSpace(work) &&
+            their.Equals(work, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Also match decode's transmitter call if UI DX matches.
+        if (!string.IsNullOrWhiteSpace(hit.DxCall) &&
+            !string.IsNullOrWhiteSpace(DxCall) &&
+            hit.DxCall.Equals(DxCall, StringComparison.OrdinalIgnoreCase) &&
+            their.Equals(DxCall, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>True when decode is MYCALL THEIRCALL GRID (first reply to our CQ).</summary>
+    bool TryAcceptCqReply(DecodeHit hit)
+    {
+        // While CQ hold is armed, ignore decodes that predate this CQ session.
+        if (_holdCq && hit.Utc < _cqSessionUtc.AddSeconds(-2))
+            return false;
+
+        var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return false;
+
+        string my = MyCall.Trim();
+        if (!parts[0].Equals(my, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string their = parts[1];
+        if (their.Equals(my, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return AutoSequencer.ExtractQsoToken(hit.Message) == Ft8QsoToken.Grid;
+    }
+
+    void MarkWorkingFlags(DecodeHit hit)
+    {
+        string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
+        work = (work ?? "").Trim();
+        if (string.IsNullOrEmpty(work))
+        {
+            hit.IsWorking = false;
+            return;
+        }
+
+        hit.IsWorking =
+            (!string.IsNullOrWhiteSpace(hit.DxCall) &&
+             hit.DxCall.Equals(work, StringComparison.OrdinalIgnoreCase)) ||
+            hit.Message.Contains(work, StringComparison.OrdinalIgnoreCase);
     }
 
     void PushLocalTxDecode(string message)
@@ -1681,6 +2469,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             State = UsState.Resolve(CallsignCountry.FromCall(dx), DxGrid, dx),
             IsNew = false,
             IsCq = parsed.IsCq,
+            IsToMe = false,
+            IsWorking = true, // our TX — shown green in RX (calling CQ / a station)
             DistanceMiles = Maidenhead.DistanceMiles(MyGrid, string.IsNullOrWhiteSpace(DxGrid) ? parsed.DxGrid : DxGrid)
                 is double mi ? Math.Round(mi) : null
         };
@@ -1690,56 +2480,420 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Activity.RemoveAt(Activity.Count - 1);
 
         // RX pane already includes TX-frequency rows so outbound calls stay visible while split.
+        UpdateRxActivityAfterNewHits([hit]);
+    }
+
+    void UpdateRxActivityAfterNewHits(IReadOnlyList<DecodeHit> hits)
+    {
+        if (_rxHistorySuppressed)
+        {
+            // Only show traffic that arrived after Clear — do not pull old Band Activity rows back in.
+            foreach (var hit in hits)
+            {
+                if (!MatchesRxPane(hit)) continue;
+                if (RxActivity.Contains(hit)) continue;
+                RxActivity.Insert(0, hit);
+                if (RxActivity.Count > 80)
+                    RxActivity.RemoveAt(RxActivity.Count - 1);
+            }
+            return;
+        }
+
         RebuildRxFilter();
+    }
+
+    /// <summary>
+    /// RX pane: near Rx/Tx audio, plus anything addressed to us (CQ replies often land off our Tx Hz),
+    /// plus traffic involving the station we are working.
+    /// </summary>
+    bool MatchesRxPane(DecodeHit hit)
+    {
+        if (Math.Abs(hit.Hz - RxHz) <= 50 || Math.Abs(hit.Hz - TxHz) <= 50)
+            return true;
+        if (hit.IsToMe)
+            return true;
+        if (hit.IsWorking)
+            return true;
+
+        string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
+        if (!string.IsNullOrWhiteSpace(work) &&
+            hit.Message.Contains(work, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>Force a decode into the RX pane (CQ reply / working station), even after Clear.</summary>
+    void EnsureInRxActivity(DecodeHit hit)
+    {
+        if (!RxActivity.Contains(hit))
+        {
+            RxActivity.Insert(0, hit);
+            if (RxActivity.Count > 80)
+                RxActivity.RemoveAt(RxActivity.Count - 1);
+        }
+
+        // Highlight quietly — do not run ApplySelectedDecode / StartWorking.
+        _selectedRxDecode = hit;
+        Raise(nameof(SelectedRxDecode));
     }
 
     void RebuildRxFilter()
     {
+        if (_rxHistorySuppressed)
+            return;
+
         // Clear selection first — clearing ItemsSource while SelectedItem is set can crash WPF DataGrid automation.
         DecodeHit? keep = _selectedRxDecode;
         SelectedRxDecode = null;
         RxActivity.Clear();
-        // Include audio near RX, and also our TX frequency so outbound calls stay visible when split.
-        foreach (var h in Activity
-                     .Where(a => Math.Abs(a.Hz - RxHz) <= 50 || Math.Abs(a.Hz - TxHz) <= 50)
-                     .Take(80))
+        // Near Rx/Tx Hz, calls-to-me, and working-station traffic.
+        foreach (var h in Activity.Where(MatchesRxPane).Take(80))
             RxActivity.Add(h);
         if (keep is not null && RxActivity.Contains(keep))
             _selectedRxDecode = keep; // restore quietly without re-running ApplySelectedDecode
         Raise(nameof(SelectedRxDecode));
     }
 
-    void SendMacro(TxMacro? macro)
+    void SendMacro(MacroDisplayItem? item)
     {
-        if (macro is null || !EnableTx) return;
+        if (item is null || !EnableTx) return;
+        var macro = item.Macro;
         string msg = macro.Kind == TxMacroKind.FreeText && !string.IsNullOrWhiteSpace(FreeText)
             ? FreeText
             : Ft8MessageBuilder.Build(macro.Template, _settings, DxCall, Report);
         FreeText = msg;
+        // Directed / custom CQ macros become the CQ-hold template for Start CQ / hold TX.
+        if ((macro.Kind is TxMacroKind.Cq or TxMacroKind.Custom) &&
+            msg.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase))
+        {
+            _settings.CqTemplate = macro.Template.Trim();
+            SaveSettingsNow();
+        }
         _ = TransmitMessageAsync(msg);
+    }
+
+    void RefreshMacroPreviews()
+    {
+        foreach (var item in Macros)
+            item.Refresh(_settings, DxCall, Report, FreeText);
+    }
+
+    void RebuildMacroList()
+    {
+        Macros.Clear();
+        foreach (var m in Ft8MessageBuilder.DefaultMacros)
+            Macros.Add(new MacroDisplayItem(m));
+        foreach (var entry in _settings.CustomMacros ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(entry.Template)) continue;
+            Macros.Add(new MacroDisplayItem(Ft8MessageBuilder.ToTxMacro(entry)));
+        }
+        RefreshMacroPreviews();
+    }
+
+    string BuildCqMessage() =>
+        Ft8MessageBuilder.Build(
+            string.IsNullOrWhiteSpace(_settings.CqTemplate) ? "CQ {mycall} {mygrid}" : _settings.CqTemplate,
+            _settings, "", Report);
+
+    void AddCustomMacro()
+    {
+        string label = (NewCustomMacroLabel ?? "").Trim();
+        string template = (NewCustomMacroTemplate ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            Status = "Custom macro needs a template (e.g. CQ DX {mycall} {mygrid})";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            // First token(s) before placeholders → label
+            label = template
+                .Replace("{mycall}", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("{mygrid}", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("{dxcall}", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("{snr}", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+            if (string.IsNullOrWhiteSpace(label)) label = "Custom";
+        }
+
+        _settings.CustomMacros ??= [];
+        var entry = new CustomMacroEntry
+        {
+            Label = label.ToUpperInvariant(),
+            Template = template
+        };
+        _settings.CustomMacros.Add(entry);
+        Macros.Add(new MacroDisplayItem(Ft8MessageBuilder.ToTxMacro(entry)));
+        RefreshMacroPreviews();
+        SaveSettingsNow();
+        Status = $"Custom macro added → {label}: {Ft8MessageBuilder.Build(template, _settings, DxCall, Report)}";
+        NewCustomMacroLabel = "";
+        NewCustomMacroTemplate = "";
+    }
+
+    void RemoveCustomMacro(MacroDisplayItem? item)
+    {
+        if (item is null || !item.IsCustom || string.IsNullOrWhiteSpace(item.CustomId)) return;
+        _settings.CustomMacros?.RemoveAll(m => m.Id == item.CustomId);
+        Macros.Remove(item);
+        SaveSettingsNow();
+        Status = $"Removed custom macro → {item.Label}";
+    }
+
+    /// <summary>Rebuild FreeText from standard WSJT-X-style templates for the current DX/phase.</summary>
+    void ResetTxMacros()
+    {
+        string? next = _seq.NextTxMessage(_settings);
+        if (!string.IsNullOrWhiteSpace(next))
+        {
+            FreeText = next;
+            PhaseLabel = _seq.Phase.ToString();
+            Status = $"TX macros reset → {FreeText}";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(DxCall))
+        {
+            FreeText = Ft8MessageBuilder.Build("{dxcall} {mycall} {mygrid}", _settings, DxCall, Report);
+            Status = $"TX macros reset → {FreeText}";
+            return;
+        }
+
+        FreeText = BuildCqMessage();
+        Status = $"TX macros reset → {FreeText}";
+    }
+
+    /// <summary>Operator typed a callsign — load it into macros / sequencer (Tx1 grid call).</summary>
+    void ApplyManualDxCall()
+    {
+        string call = (DxCall ?? "").Trim().ToUpperInvariant();
+        string grid = (DxGrid ?? "").Trim().ToUpperInvariant();
+        DxCall = call;
+        DxGrid = grid;
+
+        if (string.IsNullOrWhiteSpace(call))
+        {
+            Status = "Enter a DX callsign for macros";
+            return;
+        }
+
+        _holdCq = false;
+        _seq.StartWorking(call, grid, Report, forceRestart: true);
+        PhaseLabel = _seq.Phase.ToString();
+        FreeText = _seq.NextTxMessage(_settings) ??
+                   Ft8MessageBuilder.Build("{dxcall} {mycall} {mygrid}", _settings, call, Report);
+        InvalidateTxAudioCache();
+        PrimeTxAudioCache(FreeText);
+        RefreshMacroPreviews();
+        Status = $"Manual DX → {call}  ({FreeText})";
+    }
+
+    void InvalidateTxAudioCache()
+    {
+        _txAudioCache = null;
+        _txAudioCacheKey = null;
+    }
+
+    string TxAudioCacheKey(string message) =>
+        $"{Mode}|{TxHz}|{message.Trim().ToUpperInvariant()}";
+
+    void PrimeTxAudioCache(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        string key = TxAudioCacheKey(message);
+        if (_txAudioCache is not null && _txAudioCacheKey == key) return;
+
+        try
+        {
+            double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
+            string? encoderExe = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
+                ? Ft8CodePaths.FindFt4Code()
+                : Ft8CodePaths.FindFt8Code();
+            _txAudioCache = Ft8ToneGenerator.Generate(
+                message.Trim(), TxHz, seconds, drive01: 1.0, mode: Mode, codeExeHint: encoderExe);
+            _txAudioCacheKey = key;
+        }
+        catch
+        {
+            InvalidateTxAudioCache();
+        }
+    }
+
+    async Task ToggleTuneAsync()
+    {
+        if (IsTuning)
+        {
+            await StopTuneAsync("Tune stopped.");
+            return;
+        }
+
+        if (IsTransmitting) return;
+
+        IsTuning = true;
+        IsTransmitting = true;
+        _tuneCts?.Cancel();
+        _tuneCts?.Dispose();
+        _tuneCts = new CancellationTokenSource();
+        var ct = _tuneCts.Token;
+
+        try
+        {
+            await PushRfPowerAsync();
+            float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0.15, 1);
+            // Up to 60s continuous carrier at Tx Hz for SWR / ALC.
+            float[] audio = Ft8ToneGenerator.GenerateConstantTone(TxHz, seconds: 60, drive01: 1.0);
+
+            int outIdx = OutputDevices.Count == 0 ? -1 : SelectedOutputIndex;
+            string? outNamePref = string.IsNullOrWhiteSpace(_settings.OutputDeviceName)
+                ? (outIdx >= 0 && outIdx < OutputDevices.Count ? OutputDevices[outIdx] : null)
+                : _settings.OutputDeviceName;
+
+            await EnsureDigiModeForTxAsync();
+            float playGain = Math.Clamp(Math.Max(drive, 0.35f), 0, 1);
+            _playback.PlayMono(
+                audio,
+                AudioCaptureService.SampleRate,
+                outIdx,
+                volume01: playGain,
+                preferredName: outNamePref);
+            await Task.Delay(80, ct);
+            if (!_playback.IsPlaying)
+                throw new InvalidOperationException("Tune audio did not start — check Out device.");
+
+            await _cat.SetPttAsync(true, CatPttEnabled);
+            Status = $"TUNE {TxHz} Hz — max 60s (Tune or Halt to stop)";
+
+            await Task.Delay(TimeSpan.FromSeconds(60), ct);
+            await StopTuneAsync("Tune ended (60s).");
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped by user (Tune toggle / Halt).
+        }
+        catch (Exception ex)
+        {
+            Status = $"Tune failed: {ex.Message}";
+            await StopTuneAsync(null);
+        }
+    }
+
+    async Task StopTuneAsync(string? status)
+    {
+        try { _tuneCts?.Cancel(); } catch { /* ignore */ }
+        try { _tuneCts?.Dispose(); } catch { /* ignore */ }
+        _tuneCts = null;
+
+        _playback.Stop();
+        try { await _cat.SetPttAsync(false, CatPttEnabled); } catch { /* ignore */ }
+
+        bool wasTuning = IsTuning;
+        IsTuning = false;
+        IsTransmitting = false;
+        if (status is not null)
+            Status = status;
+        else if (wasTuning && string.IsNullOrWhiteSpace(Status))
+            Status = "Tune stopped.";
+        CommandManager.InvalidateRequerySuggested();
     }
 
     async Task TransmitMessageAsync(string message)
     {
-        if (_isTransmitting) return;
-        _isTransmitting = true;
+        if (IsTransmitting || IsTuning) return;
+        IsTransmitting = true;
         _qsoStartUtc ??= DateTime.UtcNow;
         bool promptLogAfterTx = false;
         try
         {
+            message = (message ?? "").Trim();
+            if (message.StartsWith('→'))
+                message = message.TrimStart('→', ' ').Trim();
+
             // Show the outbound call in Band/RX activity at the TX frequency.
             PushLocalTxDecode(message);
 
             await PushRfPowerAsync();
-            await _cat.SetPttAsync(true, CatPttEnabled);
             double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
-            // Generate near full-scale; PlayMono applies Drive as the ALC audio level.
+            // Real FT8/FT4 channel symbols via WSJT-X ft8code/ft4code — fake tones are not decodable.
             float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0, 1);
-            var audio = Ft8ToneGenerator.Generate(message, TxHz, seconds, drive01: 1.0);
+            string? encoderExe = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
+                ? Ft8CodePaths.FindFt4Code()
+                : Ft8CodePaths.FindFt8Code();
+            string cacheKey = TxAudioCacheKey(message);
+            float[] audio;
+            try
+            {
+                if (_txAudioCache is not null && _txAudioCacheKey == cacheKey)
+                {
+                    audio = _txAudioCache;
+                }
+                else
+                {
+                    audio = Ft8ToneGenerator.Generate(
+                        message, TxHz, seconds, drive01: 1.0, mode: Mode, codeExeHint: encoderExe);
+                    _txAudioCache = audio;
+                    _txAudioCacheKey = cacheKey;
+                }
+            }
+            catch (Exception ex)
+            {
+                Status = $"TX encode failed: {ex.Message}";
+                return;
+            }
+
             int outIdx = OutputDevices.Count == 0 ? -1 : SelectedOutputIndex;
+            string? outNamePref = string.IsNullOrWhiteSpace(_settings.OutputDeviceName)
+                ? (outIdx >= 0 && outIdx < OutputDevices.Count ? OutputDevices[outIdx] : null)
+                : _settings.OutputDeviceName;
+            string encName = string.IsNullOrEmpty(encoderExe) ? "?" : Path.GetFileName(encoderExe);
+            float peak = 0;
+            for (int i = 0; i < audio.Length; i += 32)
+            {
+                float a = Math.Abs(audio[i]);
+                if (a > peak) peak = a;
+            }
+
             ApplyDriveLevel(_settings.TxDrivePercent);
-            _playback.PlayMono(audio, AudioCaptureService.SampleRate, outIdx, volume01: drive);
-            Status = $"TX: {message} @ {TxHz} Hz  drive {_settings.TxDrivePercent}% — move Drive to set ALC";
+
+            // USB digi radios (FT-710 etc.) need DATA-U / PKTUSB — plain USB often keys RF with no USB audio.
+            string digiMode = await EnsureDigiModeForTxAsync();
+
+            // Start USB audio first so the codec stream is running, then key PTT.
+            float playGain = Math.Clamp(Math.Max(drive, 0.35f), 0, 1);
+            _playback.PlayMono(
+                audio,
+                AudioCaptureService.SampleRate,
+                outIdx,
+                volume01: playGain,
+                preferredName: outNamePref);
+            await Task.Delay(80);
+            if (!_playback.IsPlaying)
+                throw new InvalidOperationException(
+                    $"Audio did not start on '{_playback.ActiveDeviceName ?? outNamePref ?? "?"}'. Check Out device.");
+
+            await _cat.SetPttAsync(true, CatPttEnabled);
+
+            if (!string.IsNullOrWhiteSpace(_playback.ActiveDeviceName))
+            {
+                _settings.OutputDeviceName = _playback.ActiveDeviceName;
+                int match = OutputDevices.ToList().FindIndex(n =>
+                    n.Equals(_playback.ActiveDeviceName, StringComparison.OrdinalIgnoreCase));
+                if (match >= 0)
+                    _settings.OutputDeviceIndex = match;
+            }
+
+            string txWarn = TxHz is < 500 or > 2500
+                ? $"  ⚠ Tx {TxHz} Hz is outside typical FT8 activity (use ~1000–2000)"
+                : "";
+            Status =
+                $"TX: {message} @ {TxHz} Hz → {_playback.ActiveDeviceName}  " +
+                $"mode {digiMode}  drive {_settings.TxDrivePercent}% peak {peak * playGain:0.00}  [{encName}]{txWarn}";
+            AppendTxLog(
+                $"TX ok msg='{message}' txHz={TxHz} out='{_playback.ActiveDeviceName}' mode={digiMode} " +
+                $"drive={_settings.TxDrivePercent}% peak={peak * playGain:0.00} enc={encName}");
+
             int holdMs = (int)(seconds * 1000) + 400;
             await Task.Delay(holdMs);
             if (IsSeventyThreeMessage(message) && !string.IsNullOrWhiteSpace(DxCall))
@@ -1748,12 +2902,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Status = $"TX failed: {ex.Message}";
+            AppendTxLog($"TX FAIL: {ex.Message}");
         }
         finally
         {
             _playback.Stop();
             await _cat.SetPttAsync(false, CatPttEnabled);
-            _isTransmitting = false;
+            IsTransmitting = false;
             // Keep DRV meter showing the slider so it still feels adjustable when idle.
             ApplyDriveToAlcMeter();
             if (promptLogAfterTx)
@@ -1769,11 +2924,83 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return last is "73" or "RR73";
     }
 
+    /// <summary>
+    /// Plain USB/LSB often ignores the USB sound-card audio path. Prefer DATA-U / PKTUSB / DIGU for FT8.
+    /// </summary>
+    async Task<string> EnsureDigiModeForTxAsync()
+    {
+        if (!_cat.IsConnected) return HamlibMode;
+
+        static bool LooksDigi(string m) =>
+            m.Contains("DATA", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("PKT", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("DIG", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("USB-D", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("USB_D", StringComparison.OrdinalIgnoreCase);
+
+        // Prefer an already-configured digi mode, then common Yaesu/Icom digi labels — never settle on plain USB first.
+        var digiFirst = new List<string>();
+        if (!string.IsNullOrWhiteSpace(HamlibMode) && LooksDigi(HamlibMode))
+            digiFirst.Add(HamlibMode.Trim());
+        digiFirst.AddRange(["DATA-U", "PKTUSB", "DIGU", "USB-D", "DATA-USB", "USB-DATA"]);
+
+        foreach (var mode in digiFirst.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                await _cat.SetModeAsync(mode);
+                HamlibMode = mode;
+                return mode;
+            }
+            catch
+            {
+                // try next label — HRD/rig naming varies
+            }
+        }
+
+        // Last resort: whatever is configured (may be plain USB).
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(HamlibMode))
+                await _cat.SetModeAsync(HamlibMode);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return HamlibMode;
+    }
+
+    static void AppendTxLog(string line)
+    {
+        try
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SignalDx");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(
+                Path.Combine(dir, "tx-log.txt"),
+                $"{DateTime.UtcNow:HH:mm:ss.fff}Z {line}{Environment.NewLine}");
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     async Task HaltTxAsync()
     {
+        if (IsTuning)
+        {
+            await StopTuneAsync("Tune halted.");
+            return;
+        }
+
         _playback.Stop();
         await _cat.SetPttAsync(false, CatPttEnabled);
-        _isTransmitting = false;
+        IsTransmitting = false;
         Status = "TX halted.";
     }
 
@@ -1853,21 +3080,29 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    QsoEntry BuildQsoDraft() => new()
+    QsoEntry BuildQsoDraft()
     {
-        UtcStart = _qsoStartUtc ?? DateTime.UtcNow.AddSeconds(-30),
-        UtcEnd = DateTime.UtcNow,
-        Mode = Mode,
-        Band = Band,
-        DialMhz = DialMhz,
-        MyCall = MyCall,
-        MyGrid = MyGrid,
-        DxCall = DxCall.Trim().ToUpperInvariant(),
-        DxGrid = DxGrid.Trim().ToUpperInvariant(),
-        SentRst = Report,
-        RcvdRst = Report,
-        Comment = FreeText
-    };
+        string dxGrid = DxGrid.Trim().ToUpperInvariant();
+        string comment = "";
+        if (Maidenhead.DistanceMiles(MyGrid, dxGrid) is double mi)
+            comment = $"Distance: {Math.Round(mi)} mi";
+
+        return new QsoEntry
+        {
+            UtcStart = _qsoStartUtc ?? DateTime.UtcNow.AddSeconds(-30),
+            UtcEnd = DateTime.UtcNow,
+            Mode = Mode,
+            Band = Band,
+            DialMhz = DialMhz,
+            MyCall = MyCall,
+            MyGrid = MyGrid,
+            DxCall = DxCall.Trim().ToUpperInvariant(),
+            DxGrid = dxGrid,
+            SentRst = Report,
+            RcvdRst = Report,
+            Comment = comment
+        };
+    }
 
     async Task LogSelectedQsoAsync()
     {
@@ -1896,7 +3131,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     void FinishQsoSession()
     {
         _qsoStartUtc = null;
-        if (_seq.Phase is QsoPhase.Complete or QsoPhase.Sent73)
+        if (_seq.Phase is QsoPhase.Complete or QsoPhase.Sent73 or QsoPhase.SendingSeventyThree)
         {
             _seq.Reset();
             PhaseLabel = "Idle";
@@ -1957,16 +3192,55 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return width >= 400 && height >= 300;
     }
 
+    public void CapturePaneLayout(
+        double waterfall, double activity, double log,
+        double band, double rx, double macros)
+    {
+        _settings.LayoutWaterfallShare = waterfall;
+        _settings.LayoutActivityShare = activity;
+        _settings.LayoutLogShare = log;
+        _settings.LayoutBandShare = band;
+        _settings.LayoutRxShare = rx;
+        _settings.LayoutMacroShare = macros;
+    }
+
+    public bool TryGetPaneLayout(
+        out double waterfall, out double activity, out double log,
+        out double band, out double rx, out double macros)
+    {
+        waterfall = _settings.LayoutWaterfallShare;
+        activity = _settings.LayoutActivityShare;
+        log = _settings.LayoutLogShare;
+        band = _settings.LayoutBandShare;
+        rx = _settings.LayoutRxShare;
+        macros = _settings.LayoutMacroShare;
+
+        // Log pane removed — accept old 3-share or new 2-share vertical layouts.
+        bool verticalOk =
+            waterfall > 0.02 && activity > 0.02 &&
+            (log <= 0.001
+                ? Math.Abs(waterfall + activity - 1.0) < 0.25
+                : log > 0.02 && Math.Abs(waterfall + activity + log - 1.0) < 0.25);
+
+        return verticalOk &&
+               band > 0.02 && rx > 0.02 && macros > 0.02 &&
+               Math.Abs(band + rx + macros - 1.0) < 0.25;
+    }
+
     public void Dispose()
     {
+        try { _tuneCts?.Cancel(); } catch { /* ignore */ }
+        try { _tuneCts?.Dispose(); } catch { /* ignore */ }
+        _tuneCts = null;
         _clock.Stop();
         _spectrumTimer.Stop();
         _heartbeat.Stop();
         _jtdx.Dispose();
         _capture.Dispose();
         _playback.Dispose();
+        _callAlert.Dispose();
         _external.Dispose();
         _ = _cat.DisposeAsync().AsTask();
-        SaveSettingsNow();
+        // Window Closing already flushed placement/layout — avoid a second write race.
     }
 }

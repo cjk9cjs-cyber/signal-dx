@@ -8,9 +8,23 @@
     <RootNamespace>SignalDx</RootNamespace>
     <AssemblyName>SignalDx</AssemblyName>
     <ApplicationTitle>Signal DX</ApplicationTitle>
+    <ApplicationIcon>Assets\SignalDx.ico</ApplicationIcon>
+    <Version>1.11.0</Version>
+    <InformationalVersion>1.11.0</InformationalVersion>
+    <Copyright>Copyright © 2026 CJ Schmit — K9CJS</Copyright>
+    <Authors>CJ Schmit — K9CJS</Authors>
+    <Company>K9CJS</Company>
+    <Product>Signal DX</Product>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\SignalDx.Core\SignalDx.Core.csproj" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\SignalDx.ico" />
+    <Resource Include="Assets\SignalDx.png" />
+    <Content Include="Assets\call-alert.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>

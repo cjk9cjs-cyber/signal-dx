@@ -38,9 +38,9 @@ public sealed class AudioCaptureService : IDisposable
 
     public double BufferedSeconds => BufferedSamples / (double)SampleRate;
 
-    public static IReadOnlyList<(int Index, string Name)> ListDevices()
+    public static IReadOnlyList<(int Index, string Name, string Id)> ListDevices()
     {
-        var list = new List<(int, string)>();
+        var list = new List<(int, string, string)>();
         try
         {
             using var enumerator = new MMDeviceEnumerator();
@@ -48,7 +48,8 @@ public sealed class AudioCaptureService : IDisposable
             for (int i = 0; i < devices.Count; i++)
             {
                 string name = devices[i].FriendlyName;
-                list.Add((i, name));
+                string id = devices[i].ID;
+                list.Add((i, name, id));
             }
         }
         catch
@@ -58,7 +59,7 @@ public sealed class AudioCaptureService : IDisposable
         return list;
     }
 
-    public void Start(int deviceNumber = -1)
+    public void Start(int deviceNumber = -1, string? preferredName = null, string? preferredId = null)
     {
         Stop();
         DeviceNumber = deviceNumber;
@@ -68,7 +69,35 @@ public sealed class AudioCaptureService : IDisposable
         if (devices.Count == 0)
             throw new InvalidOperationException("No WASAPI capture devices found.");
 
-        int idx = deviceNumber < 0 ? 0 : Math.Min(deviceNumber, devices.Count - 1);
+        int idx = -1;
+        if (!string.IsNullOrWhiteSpace(preferredId))
+        {
+            for (int i = 0; i < devices.Count; i++)
+            {
+                if (devices[i].ID.Equals(preferredId, StringComparison.OrdinalIgnoreCase))
+                {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+
+        if (idx < 0 && !string.IsNullOrWhiteSpace(preferredName))
+        {
+            for (int i = 0; i < devices.Count; i++)
+            {
+                if (devices[i].FriendlyName.Equals(preferredName, StringComparison.OrdinalIgnoreCase))
+                {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+
+        if (idx < 0)
+            idx = deviceNumber < 0 ? 0 : Math.Min(deviceNumber, devices.Count - 1);
+
+        DeviceNumber = idx;
         var device = devices[idx];
 
         _wasapi = new WasapiCapture(device);

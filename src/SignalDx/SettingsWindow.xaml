@@ -160,7 +160,7 @@
                   <CheckBox Content="Auto-start rigctld" IsChecked="{Binding HamlibAutoStart}"/>
                   <CheckBox Content="PTT on TX" IsChecked="{Binding CatPttEnabled}"/>
                   <CheckBox Content="Follow dial" IsChecked="{Binding CatFollowDial}"
-                            ToolTip="When checked, Apply band / Set dial push the dial to the radio. Leave off to keep the VFO as source of truth."/>
+                            ToolTip="Reserved for continuous dial sync. Apply band always sets the radio frequency when CAT is connected."/>
                   <CheckBox Content="CAT RF power" IsChecked="{Binding CatRfPowerEnabled}" Margin="12,0,0,0"
                             ToolTip="Push Power (W) / Max watts as Hamlib RFPOWER on TX"/>
                   <Label Content="Max W" Margin="10,0,0,0"/>
@@ -357,9 +357,65 @@
                            Text="Classic, Amber, Ice, Green, Magenta, Gray, Heat. New spectrum lines use the selected palette immediately; older waterfall history keeps prior colors until it scrolls off."/>
                 <CheckBox Content="Lock Tx = Rx when picking on waterfall"
                           IsChecked="{Binding LockTxToRx}" Margin="0,14,0,0"/>
+                <CheckBox Content="Play sound when a station calls my callsign"
+                          IsChecked="{Binding CallAlertEnabled}" Margin="0,14,0,6"/>
+                <DockPanel Margin="0,0,0,0">
+                  <Label Content="Alert WAV" Width="80" VerticalAlignment="Center"/>
+                  <TextBox Text="{Binding CallAlertSoundPath, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Leave blank for the built-in call-alert.wav"/>
+                </DockPanel>
               </StackPanel>
             </Border>
           </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- About -->
+      <TabItem Header="About">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                  BorderThickness="1" Padding="20">
+            <StackPanel>
+              <TextBlock Text="{Binding AboutProductName}" FontSize="22" FontWeight="Bold"
+                         Foreground="{StaticResource AccentBrush}" Margin="0,0,0,16"/>
+
+              <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Creator"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AboutCreator}"
+                           FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Call sign"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AboutCreatorCall}"
+                           FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Version"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AboutVersion}"
+                           FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Date created"
+                           Foreground="{StaticResource MutedBrush}"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AboutDateCreated}"
+                           FontWeight="SemiBold"/>
+              </Grid>
+
+              <TextBlock Margin="0,20,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                         Text="Windows FT8 / FT4 digi operator console."/>
+            </StackPanel>
+          </Border>
         </ScrollViewer>
       </TabItem>
     </TabControl>

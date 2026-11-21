@@ -12,6 +12,7 @@
     <SolidColorBrush x:Key="AccentBrush" Color="#3FC0E0"/>
     <SolidColorBrush x:Key="WarnBrush" Color="#E06C3F"/>
     <SolidColorBrush x:Key="CqBrush" Color="#F0C14A"/>
+    <SolidColorBrush x:Key="WorkingCallBrush" Color="#FFD400"/>
     <SolidColorBrush x:Key="GoodBrush" Color="#4FCF8A"/>
 
     <Style TargetType="Window">
@@ -218,6 +219,67 @@
       <Setter Property="Background" Value="#3A2418"/>
       <Setter Property="BorderBrush" Value="#E06C3F"/>
       <Setter Property="MinWidth" Value="64"/>
+    </Style>
+
+    <!-- Orange idle; red while continuous tune tone is on. -->
+    <Style x:Key="TuneToggleButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="MinWidth" Value="64"/>
+      <Setter Property="Background" Value="#3A2418"/>
+      <Setter Property="BorderBrush" Value="#E06C3F"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="Content" Value="Tune"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsTuning}" Value="True">
+          <Setter Property="Background" Value="#8B1E1E"/>
+          <Setter Property="BorderBrush" Value="#FF4545"/>
+          <Setter Property="Foreground" Value="#FFECEC"/>
+          <Setter Property="Content" Value="TUNE ON"/>
+        </DataTrigger>
+        <MultiDataTrigger>
+          <MultiDataTrigger.Conditions>
+            <Condition Binding="{Binding IsTuning}" Value="False"/>
+            <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+          </MultiDataTrigger.Conditions>
+          <Setter Property="Background" Value="#4A3020"/>
+        </MultiDataTrigger>
+        <MultiDataTrigger>
+          <MultiDataTrigger.Conditions>
+            <Condition Binding="{Binding IsTuning}" Value="True"/>
+            <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+          </MultiDataTrigger.Conditions>
+          <Setter Property="Background" Value="#A82828"/>
+        </MultiDataTrigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- Blue when TX armed off; red when Enable TX is on. -->
+    <Style x:Key="EnableTxToggleButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Background" Value="#143447"/>
+      <Setter Property="BorderBrush" Value="#3FC0E0"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding EnableTx}" Value="True">
+          <Setter Property="Background" Value="#8B1E1E"/>
+          <Setter Property="BorderBrush" Value="#FF4545"/>
+          <Setter Property="Foreground" Value="#FFECEC"/>
+          <Setter Property="Content" Value="TX ON"/>
+        </DataTrigger>
+        <MultiDataTrigger>
+          <MultiDataTrigger.Conditions>
+            <Condition Binding="{Binding EnableTx}" Value="False"/>
+            <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+          </MultiDataTrigger.Conditions>
+          <Setter Property="Background" Value="#1A5268"/>
+        </MultiDataTrigger>
+        <MultiDataTrigger>
+          <MultiDataTrigger.Conditions>
+            <Condition Binding="{Binding EnableTx}" Value="True"/>
+            <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+          </MultiDataTrigger.Conditions>
+          <Setter Property="Background" Value="#A82828"/>
+        </MultiDataTrigger>
+      </Style.Triggers>
     </Style>
 
     <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

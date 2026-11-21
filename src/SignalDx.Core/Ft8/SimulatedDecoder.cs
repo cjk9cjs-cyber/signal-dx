@@ -40,10 +40,12 @@ public sealed class SimulatedDecoder
             bool isNew = _heard.Add(call);
             var parsed = Ft8MessageBuilder.Parse(message);
             // Prefer explicit grid from CQ/message; fall back to the simulated station grid.
+            // DxCall is the calling/transmitting station (not the called party).
+            string? dxCall = parsed.DxCall ?? call;
             string? dxGrid = parsed.DxGrid ?? (cq ? grid : null);
             double? miles = Maidenhead.DistanceMiles(station.MyGrid, dxGrid);
-            string? country = CallsignCountry.FromCall(parsed.DxCall);
-            string? state = UsState.Resolve(country, dxGrid, parsed.DxCall);
+            string? country = CallsignCountry.FromCall(dxCall);
+            string? state = UsState.Resolve(country, dxGrid, dxCall);
 
             hits.Add(new DecodeHit
             {
@@ -53,12 +55,14 @@ public sealed class SimulatedDecoder
                 SnrDb = snr,
                 Dt = dt,
                 Message = message,
-                DxCall = parsed.DxCall,
+                DxCall = dxCall,
                 DxGrid = dxGrid,
                 Country = country,
                 State = state,
                 IsNew = isNew,
                 IsCq = cq,
+                IsToMe = !string.IsNullOrWhiteSpace(station.MyCall) &&
+                         message.StartsWith(station.MyCall.Trim() + " ", StringComparison.OrdinalIgnoreCase),
                 DistanceMiles = miles is double m ? Math.Round(m) : null
             });
         }
