@@ -16,6 +16,18 @@ Windows digi operator console inspired by JTDX — waterfall, FT8/FT4 slot timin
 dotnet run --project src\SignalDx\SignalDx.csproj
 ```
 
+## Windows installer
+
+Build a self-contained `Setup.exe` (bundles .NET 8, no separate runtime install):
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+Output: `artifacts\installer\SignalDx-<version>-Setup.exe`
+
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install --id JRSoftware.InnoSetup -e`). Use `-FrameworkDependent` for a smaller package that needs the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
+
 ## Features
 
 | Area | Behavior |

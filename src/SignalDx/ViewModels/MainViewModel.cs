@@ -1868,20 +1868,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void StartCq()
     {
+        ArmCqHold();
+        // Arm for the next matching period — do not key mid-slot (late TX is hard to complete QSOs with).
+        Status = $"CQ hold ON ({(TxEven ? "even" : "odd")}) → {FreeText}";
+    }
+
+    /// <summary>
+    /// Enter CQ-hold: clear any prior DX/QSO so the next TX slot keeps calling CQ
+    /// (not the previous station left in the sequencer).
+    /// </summary>
+    void ArmCqHold()
+    {
         SelectedActivityDecode = null;
         SelectedRxDecode = null;
         _holdCq = true;
         _cqSessionUtc = DateTime.UtcNow;
+        _deferTxUntilDecode = false;
         _seq.StartCq();
         PhaseLabel = _seq.Phase.ToString();
         DxCall = "";
         DxGrid = "";
         FreeText = BuildCqMessage();
-        // Arm for the next matching period — do not key mid-slot (late TX is hard to complete QSOs with).
         EnableTx = true;
         InvalidateTxAudioCache();
         PrimeTxAudioCache(FreeText);
-        Status = $"CQ hold ON ({(TxEven ? "even" : "odd")}) → {FreeText}";
     }
 
     void OnClock(object? sender, EventArgs e)
@@ -2562,14 +2572,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         string msg = macro.Kind == TxMacroKind.FreeText && !string.IsNullOrWhiteSpace(FreeText)
             ? FreeText
             : Ft8MessageBuilder.Build(macro.Template, _settings, DxCall, Report);
-        FreeText = msg;
-        // Directed / custom CQ macros become the CQ-hold template for Start CQ / hold TX.
+
+        // CQ / CQ DX / CQ EU: arm CQ-hold and clear the prior DX so the next slot
+        // does not fall back to AutoSequence calling the previous station.
         if ((macro.Kind is TxMacroKind.Cq or TxMacroKind.Custom) &&
             msg.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase))
         {
-            _settings.CqTemplate = macro.Template.Trim();
+            _settings.CqTemplate = string.IsNullOrWhiteSpace(macro.Template)
+                ? "CQ {mycall} {mygrid}"
+                : macro.Template.Trim();
             SaveSettingsNow();
+            ArmCqHold();
+            Status = $"CQ hold ON → {FreeText}";
+            _ = TransmitMessageAsync(FreeText);
+            return;
         }
+
+        FreeText = msg;
         _ = TransmitMessageAsync(msg);
     }
 
