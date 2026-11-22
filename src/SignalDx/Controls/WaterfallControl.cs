@@ -17,13 +17,20 @@ public sealed class FrequencyPickEventArgs : EventArgs
 public sealed class WaterfallControl : FrameworkElement
 {
     const double ScaleBarHeight = 26;
+    const int MinBitmapWidth = 800;
+    const int MaxBitmapWidth = 2800;
+    const int MinBitmapHeight = 320;
+    const int MaxBitmapHeight = 640;
+    /// <summary>dB above noise before a pixel leaves the solid background.</summary>
+    const float SignalGateDb = 6.5f;
 
-    readonly WriteableBitmap _bitmap;
-    readonly int _width;
-    readonly int _height;
-    readonly byte[] _pixels;
-    readonly float[] _column;
-    float _noiseFloor = -85;
+    WriteableBitmap _bitmap;
+    int _width;
+    int _height;
+    byte[] _pixels;
+    float[] _column;
+    float[] _display;
+    float _noiseFloor = -90;
     float _signalCeil = -25;
 
     bool _dragging;
@@ -53,17 +60,26 @@ public sealed class WaterfallControl : FrameworkElement
 
     public WaterfallControl()
     {
-        _width = 800;
-        _height = 280;
-        _bitmap = new WriteableBitmap(_width, _height, 96, 96, PixelFormats.Bgra32, null);
+        _width = 1920;
+        _height = 480;
+        _bitmap = CreateBitmap(_width, _height);
         _pixels = new byte[_width * _height * 4];
         _column = new float[_width];
+        _display = new float[_width];
         FillBackground();
 
         Focusable = true;
         Cursor = Cursors.Cross;
+        // Nearest-neighbor keeps FT8 traces as crisp pixel columns on a solid field.
+        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
+        RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
         ToolTip = "Left-click: set Rx (+ Tx if locked)\nRight-click / Shift+click: set Tx only\nDrag to slide the channel";
+        SizeChanged += (_, _) => EnsureBitmapMatchesLayout();
+        Loaded += (_, _) => EnsureBitmapMatchesLayout();
     }
+
+    static WriteableBitmap CreateBitmap(int w, int h) =>
+        new(w, h, 96, 96, PixelFormats.Bgra32, null);
 
     static void OnPaletteChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -104,7 +120,7 @@ public sealed class WaterfallControl : FrameworkElement
     }
 
     public int SampleRate { get; set; } = 48000;
-    public int FftSize { get; set; } = 2048;
+    public int FftSize { get; set; } = 4096;
     public double MinHz { get; set; } = 200;
     public double MaxHz { get; set; } = 3000;
     public double SnapHz { get; set; } = 6.25;
@@ -117,11 +133,53 @@ public sealed class WaterfallControl : FrameworkElement
             return;
         }
 
+        EnsureBitmapMatchesLayout();
         MapColumn(magnitudesDb);
+        BuildDisplayColumn();
         ScrollUp();
-        WriteColumn(_height - 1, _column);
+        WriteColumn(_height - 1, _display);
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
         InvalidateVisual();
+    }
+
+    void EnsureBitmapMatchesLayout()
+    {
+        if (ActualWidth < 32 || ActualHeight < 32) return;
+
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        // Match on-screen pixels 1:1 so the solid background doesn't get stretched into blocks.
+        int wantW = (int)Math.Clamp(Math.Round(ActualWidth * dpi), MinBitmapWidth, MaxBitmapWidth);
+        int wantH = (int)Math.Clamp(Math.Round(Math.Max(WaterfallHeight, 180) * dpi), MinBitmapHeight, MaxBitmapHeight);
+        if ((wantW & 1) != 0) wantW++;
+        if ((wantH & 1) != 0) wantH++;
+
+        if (wantW == _width && wantH == _height) return;
+
+        var oldPixels = _pixels;
+        int oldW = _width;
+        int oldH = _height;
+
+        _width = wantW;
+        _height = wantH;
+        _bitmap = CreateBitmap(_width, _height);
+        _pixels = new byte[_width * _height * 4];
+        _column = new float[_width];
+        _display = new float[_width];
+        FillBackground();
+
+        // Preserve as much history as possible when resizing.
+        int copyH = Math.Min(oldH, _height);
+        int copyW = Math.Min(oldW, _width);
+        for (int y = 0; y < copyH; y++)
+        {
+            int srcY = oldH - copyH + y;
+            int dstY = _height - copyH + y;
+            Buffer.BlockCopy(
+                oldPixels, (srcY * oldW) * 4,
+                _pixels, (dstY * _width) * 4,
+                copyW * 4);
+        }
+        _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
     }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
@@ -255,6 +313,9 @@ public sealed class WaterfallControl : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         double wfH = WaterfallHeight;
+        // Draw onto a solid backdrop so empty/noise areas never show through as checker/pixel dirt.
+        var bg = WaterfallPalette.Background(PaletteKind);
+        dc.DrawRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, ActualWidth, wfH));
         dc.DrawImage(_bitmap, new Rect(0, 0, ActualWidth, wfH));
 
         double span = MaxHz - MinHz;
@@ -297,7 +358,6 @@ public sealed class WaterfallControl : FrameworkElement
         double h = Math.Max(0, ActualHeight - y0);
         if (h < 4 || ActualWidth <= 0) return;
 
-        // Solid bar so you can read where you are on the audio passband.
         dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0A, 0x12, 0x20)), null,
             new Rect(0, y0, ActualWidth, h));
         dc.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(0x2A, 0x3A, 0x55)), 1),
@@ -330,7 +390,6 @@ public sealed class WaterfallControl : FrameworkElement
             dc.DrawText(ft, new Point(lx, y0 + 3));
         }
 
-        // Current RX marker triangle on the scale bar.
         double rxX = HzToX(RxHz);
         var rxBrush = new SolidColorBrush(Color.FromRgb(0x3F, 0xC0, 0xE0));
         var rxGeo = new StreamGeometry();
@@ -394,42 +453,72 @@ public sealed class WaterfallControl : FrameworkElement
     protected override Size MeasureOverride(Size availableSize) =>
         new(
             double.IsInfinity(availableSize.Width) ? _width : availableSize.Width,
-            double.IsInfinity(availableSize.Height) ? _height : availableSize.Height);
+            double.IsInfinity(availableSize.Height) ? _height + ScaleBarHeight : availableSize.Height);
 
     void MapColumn(IReadOnlyList<float> magnitudesDb)
     {
         int bins = magnitudesDb.Count;
-        float sum = 0;
+        if (bins < 2) return;
+
         float peak = -120;
+        // Sample every Nth pixel for a cheap noise estimate (ignore the strongest bins).
+        float noiseAcc = 0;
+        int noiseN = 0;
         for (int x = 0; x < _width; x++)
         {
-            double hz = MinHz + (MaxHz - MinHz) * x / (_width - 1);
+            double hz = MinHz + (MaxHz - MinHz) * x / Math.Max(1, _width - 1);
             double bin = hz * FftSize / SampleRate;
-            int b0 = Math.Clamp((int)bin, 0, bins - 1);
-            int b1 = Math.Clamp(b0 + 1, 0, bins - 1);
-            float t = (float)(bin - b0);
-            // Light 3-bin average to thicken weak FT8 traces.
-            int bm = Math.Clamp(b0 - 1, 0, bins - 1);
-            int bp = Math.Clamp(b1 + 1, 0, bins - 1);
-            float db =
-                0.15f * magnitudesDb[bm] +
-                0.35f * magnitudesDb[b0] +
-                0.35f * (magnitudesDb[b0] * (1 - t) + magnitudesDb[b1] * t) +
-                0.15f * magnitudesDb[bp];
+            int b0 = Math.Clamp((int)Math.Round(bin), 0, bins - 1);
+            float db = magnitudesDb[b0];
             _column[x] = db;
-            sum += db;
             if (db > peak) peak = db;
+            if ((x & 3) == 0)
+            {
+                noiseAcc += db;
+                noiseN++;
+            }
         }
 
-        float avg = sum / _width;
-        // Noise hugs the average; ceiling tracks peaks with slow decay so bright traces pop.
-        _noiseFloor = _noiseFloor * 0.97f + avg * 0.03f;
-        _signalCeil = Math.Max(peak, _signalCeil * 0.985f + peak * 0.015f);
-        // Keep a useful window so quiet bands still show contrast.
-        if (_signalCeil - _noiseFloor < 18f)
-            _signalCeil = _noiseFloor + 18f;
-        if (_signalCeil - _noiseFloor > 55f)
-            _noiseFloor = _signalCeil - 55f;
+        // Robust-ish floor: average of subsampled bins, then bias a bit below so noise stays blank.
+        float avg = noiseN > 0 ? noiseAcc / noiseN : peak - 25f;
+        float targetFloor = avg - 1.5f;
+        _noiseFloor = _noiseFloor * 0.92f + targetFloor * 0.08f;
+        _signalCeil = Math.Max(peak, _signalCeil * 0.97f + peak * 0.03f);
+        if (_signalCeil < _noiseFloor + SignalGateDb + 12f)
+            _signalCeil = _noiseFloor + SignalGateDb + 12f;
+        if (_signalCeil - _noiseFloor > 45f)
+            _noiseFloor = _signalCeil - 45f;
+    }
+
+    /// <summary>
+    /// Gate noise to empty; keep local peaks as sharp pixel columns (classic FT8 waterfall look).
+    /// </summary>
+    void BuildDisplayColumn()
+    {
+        float gate = _noiseFloor + SignalGateDb;
+        for (int x = 0; x < _width; x++)
+        {
+            float v = _column[x];
+            if (v < gate)
+            {
+                _display[x] = float.NegativeInfinity; // → solid background
+                continue;
+            }
+
+            float left = x > 0 ? _column[x - 1] : v;
+            float right = x + 1 < _width ? _column[x + 1] : v;
+            // Prefer ridge pixels so FT8 tones read as thin vertical lines.
+            bool localPeak = v >= left && v >= right;
+            bool nearPeak = v >= left - 1.2f && v >= right - 1.2f;
+            if (localPeak)
+                _display[x] = v;
+            else if (nearPeak && v >= gate + 2f)
+                _display[x] = v - 1.5f; // dim side of a trace
+            else if (v >= gate + 5f)
+                _display[x] = v - 3f; // strong energy that isn't a sharp peak
+            else
+                _display[x] = float.NegativeInfinity;
+        }
     }
 
     void ScrollUp()
@@ -440,13 +529,24 @@ public sealed class WaterfallControl : FrameworkElement
 
     void WriteColumn(int y, float[] column)
     {
-        float range = Math.Max(18f, _signalCeil - _noiseFloor);
+        float range = Math.Max(14f, _signalCeil - (_noiseFloor + SignalGateDb));
+        var bg = WaterfallPalette.Background(PaletteKind);
         for (int x = 0; x < _width; x++)
         {
-            float linear = Math.Clamp((column[x] - _noiseFloor) / range, 0f, 1f);
-            // Gamma < 1 lifts weak signals out of the noise floor.
-            float n = (float)Math.Pow(linear, 0.55);
-            var c = WaterfallPalette.Map(PaletteKind, n);
+            Color c;
+            float v = column[x];
+            if (float.IsNegativeInfinity(v) || v < _noiseFloor + SignalGateDb)
+            {
+                c = bg;
+            }
+            else
+            {
+                float linear = Math.Clamp((v - (_noiseFloor + SignalGateDb)) / range, 0f, 1f);
+                // Slightly hard contrast so traces stay “pixel” bright on solid ground.
+                float n = (float)Math.Pow(linear, 0.72);
+                c = WaterfallPalette.Map(PaletteKind, Math.Clamp(0.18f + 0.82f * n, 0f, 1f));
+            }
+
             int i = (y * _width + x) * 4;
             _pixels[i] = c.B;
             _pixels[i + 1] = c.G;
@@ -458,16 +558,12 @@ public sealed class WaterfallControl : FrameworkElement
     void FillBackground()
     {
         var bg = WaterfallPalette.Background(PaletteKind);
-        for (int y = 0; y < _height; y++)
+        for (int i = 0; i < _pixels.Length; i += 4)
         {
-            for (int x = 0; x < _width; x++)
-            {
-                int i = (y * _width + x) * 4;
-                _pixels[i] = bg.B;
-                _pixels[i + 1] = bg.G;
-                _pixels[i + 2] = bg.R;
-                _pixels[i + 3] = 255;
-            }
+            _pixels[i] = bg.B;
+            _pixels[i + 1] = bg.G;
+            _pixels[i + 2] = bg.R;
+            _pixels[i + 3] = 255;
         }
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
         InvalidateVisual();

@@ -30,37 +30,38 @@ public static class WaterfallPalette
         {
             WaterfallPaletteKind.Amber => Multi(
                 t,
-                Rgb(8, 6, 2), Rgb(60, 30, 4), Rgb(160, 90, 10), Rgb(230, 170, 40), Rgb(255, 245, 200)),
+                Background(kind), Rgb(60, 30, 4), Rgb(160, 90, 10), Rgb(230, 170, 40), Rgb(255, 245, 200)),
             WaterfallPaletteKind.Ice => Multi(
                 t,
-                Rgb(2, 6, 18), Rgb(10, 40, 90), Rgb(20, 110, 180), Rgb(120, 210, 255), Rgb(235, 250, 255)),
+                Background(kind), Rgb(10, 40, 90), Rgb(20, 110, 180), Rgb(120, 210, 255), Rgb(235, 250, 255)),
             WaterfallPaletteKind.Green => Multi(
                 t,
-                Rgb(2, 10, 4), Rgb(8, 40, 16), Rgb(20, 110, 40), Rgb(90, 210, 80), Rgb(230, 255, 210)),
+                Background(kind), Rgb(8, 40, 16), Rgb(20, 110, 40), Rgb(90, 210, 80), Rgb(230, 255, 210)),
             WaterfallPaletteKind.Magenta => Multi(
                 t,
-                Rgb(10, 2, 14), Rgb(50, 10, 70), Rgb(130, 30, 150), Rgb(230, 90, 180), Rgb(255, 230, 250)),
+                Background(kind), Rgb(50, 10, 70), Rgb(130, 30, 150), Rgb(230, 90, 180), Rgb(255, 230, 250)),
             WaterfallPaletteKind.Gray => Multi(
                 t,
-                Rgb(6, 6, 8), Rgb(40, 42, 48), Rgb(100, 104, 112), Rgb(180, 184, 190), Rgb(245, 246, 248)),
+                Background(kind), Rgb(40, 42, 48), Rgb(100, 104, 112), Rgb(180, 184, 190), Rgb(245, 246, 248)),
             WaterfallPaletteKind.Heat => Multi(
                 t,
-                Rgb(0, 0, 0), Rgb(80, 0, 90), Rgb(200, 20, 20), Rgb(255, 160, 0), Rgb(255, 255, 220)),
+                Background(kind), Rgb(80, 0, 90), Rgb(200, 20, 20), Rgb(255, 160, 0), Rgb(255, 255, 220)),
             _ => Multi(
                 t,
-                Rgb(8, 12, 28), Rgb(20, 70, 110), Rgb(40, 160, 120), Rgb(220, 170, 40), Rgb(255, 250, 230)),
+                Background(kind), Rgb(18, 55, 95), Rgb(35, 140, 115), Rgb(210, 165, 40), Rgb(255, 250, 230)),
         };
     }
 
+    /// <summary>Solid noise-floor color — kept uniform so the waterfall doesn't look grainy.</summary>
     public static Color Background(WaterfallPaletteKind kind) => kind switch
     {
-        WaterfallPaletteKind.Amber => Rgb(6, 4, 2),
-        WaterfallPaletteKind.Ice => Rgb(2, 6, 14),
-        WaterfallPaletteKind.Green => Rgb(2, 8, 4),
-        WaterfallPaletteKind.Magenta => Rgb(8, 2, 12),
-        WaterfallPaletteKind.Gray => Rgb(6, 6, 8),
+        WaterfallPaletteKind.Amber => Rgb(4, 3, 1),
+        WaterfallPaletteKind.Ice => Rgb(1, 4, 12),
+        WaterfallPaletteKind.Green => Rgb(1, 6, 3),
+        WaterfallPaletteKind.Magenta => Rgb(6, 1, 10),
+        WaterfallPaletteKind.Gray => Rgb(4, 4, 6),
         WaterfallPaletteKind.Heat => Rgb(0, 0, 0),
-        _ => Rgb(8, 12, 18),
+        _ => Rgb(5, 8, 14),
     };
 
     static Color Multi(float t, params Color[] stops)

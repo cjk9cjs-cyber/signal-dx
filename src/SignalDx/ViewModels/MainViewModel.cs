@@ -26,7 +26,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly AudioCaptureService _capture = new();
     readonly AudioPlaybackService _playback = new();
     readonly CallAlertService _callAlert = new();
-    readonly SpectrumAnalyzer _spectrum = new(2048);
+    readonly SpectrumAnalyzer _spectrum = new(4096);
     readonly SlotTiming _timing = new();
     readonly SimulatedDecoder _sim = new();
     readonly JtdxDecoderService _jtdx = new();
@@ -1982,9 +1982,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (_waterfall is null) return;
 
+        const int fftN = 4096;
         if (frame.Length == 0)
         {
-            var noise = new float[2048];
+            var noise = new float[fftN];
             var rng = Random.Shared;
             for (int i = 0; i < noise.Length; i++)
                 noise[i] = (float)((rng.NextDouble() - 0.5) * 0.002);
@@ -1992,7 +1993,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            _spectrum.Analyze(frame.Length >= 2048 ? frame.AsSpan(0, 2048) : frame);
+            _spectrum.Analyze(frame.Length >= fftN ? frame.AsSpan(^fftN) : frame);
         }
 
         _waterfall.PushSpectrum(_spectrum.MagnitudesDb);

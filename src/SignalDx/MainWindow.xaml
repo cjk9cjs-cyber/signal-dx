@@ -230,9 +230,9 @@
       </Border>
 
       <!-- Waterfall -->
-      <Border Grid.Row="1" Background="#070B14" BorderBrush="{StaticResource BorderBrush}"
+      <Border Grid.Row="1" Background="#05080F" BorderBrush="{StaticResource BorderBrush}"
               BorderThickness="1" ClipToBounds="True">
-        <Grid>
+        <Grid Background="#05080F">
           <controls:WaterfallControl x:Name="Waterfall"/>
           <DockPanel Margin="8,6,8,30" IsHitTestVisible="False">
             <TextBlock DockPanel.Dock="Top" Text="WATERFALL — click a trace for Rx/Tx  ·  scale bar shows Hz"
