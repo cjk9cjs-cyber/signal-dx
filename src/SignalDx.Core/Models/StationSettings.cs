@@ -24,6 +24,16 @@ public sealed class StationSettings
     public double DialMhz { get; set; } = 14.074;
     public int TxHz { get; set; } = 1500;
     public int RxHz { get; set; } = 1500;
+    /// <summary>FT8/FT4 Tx audio Hz remembered while in WSPR so markers restore on leave / restart.</summary>
+    public int DigiTxHz { get; set; } = 1500;
+    /// <summary>FT8/FT4 Rx audio Hz remembered while in WSPR so markers restore on leave / restart.</summary>
+    public int DigiRxHz { get; set; } = 1500;
+    /// <summary>WSPR Tx audio Hz remembered while in FT8/FT4.</summary>
+    public int WsprAudioTxHz { get; set; } = 1500;
+    /// <summary>WSPR Rx audio Hz remembered while in FT8/FT4.</summary>
+    public int WsprAudioRxHz { get; set; } = 1500;
+    /// <summary>True after Digi*/WsprAudio* were seeded so restart can restore mode-specific markers.</summary>
+    public bool AudioHzMemoryInitialized { get; set; }
     public bool AutoSequence { get; set; } = true;
     public bool EnableTx { get; set; }
     public bool SimulateDecodes { get; set; } = true;
@@ -90,6 +100,15 @@ public sealed class StationSettings
     /// <summary>Optional custom WAV path; empty uses Assets/call-alert.wav beside the exe.</summary>
     public string CallAlertSoundPath { get; set; } = "";
 
+    /// <summary>Play a sound when a Wanted call/state/country is decoded (CQ by default).</summary>
+    public bool WantedAlertEnabled { get; set; } = true;
+    /// <summary>When true, Wanted alerts only fire on CQ (calling out), not every decode.</summary>
+    public bool WantedAlertCqOnly { get; set; } = true;
+    /// <summary>Optional WAV for Wanted alerts; empty uses Call alert WAV / built-in.</summary>
+    public string WantedAlertSoundPath { get; set; } = "";
+    /// <summary>True after Wanted defaults were applied once (older settings.json lacked these fields → bool false).</summary>
+    public bool WantedFeatureInitialized { get; set; }
+
     /// <summary>When true, selecting a decode in Band/RX activity looks up the call on QRZ.</summary>
     public bool QrzLookupOnSelect { get; set; } = true;
     /// <summary>Fill empty Dx Grid from QRZ lookup when available.</summary>
@@ -97,6 +116,14 @@ public sealed class StationSettings
 
     /// <summary>Upload decoded callspots to PSK Reporter (report.pskreporter.info).</summary>
     public bool PskReporterEnabled { get; set; } = true;
+
+    // —— WSPR-2 (JTDX / WSJT-X style) ——
+    /// <summary>Average % of 2-minute slots devoted to TX (random schedule). Typical 20–25.</summary>
+    public int WsprTxPercent { get; set; } = 20;
+    /// <summary>Upload decoded WSPR spots to wsprnet.org.</summary>
+    public bool WsprUploadSpots { get; set; } = true;
+    /// <summary>Reported TX power in dBm (snapped to WSPR valid set). Synced from / to TxPower watts.</summary>
+    public int WsprPowerDbm { get; set; } = 37;
 
     // Main window placement (null / 0 = use XAML defaults)
     public double? WindowLeft { get; set; }

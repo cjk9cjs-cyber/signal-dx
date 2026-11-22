@@ -18,8 +18,9 @@ public sealed class CallAlertService : IDisposable
         if (_disposed) return;
 
         // Avoid stacking alerts if several stations call in the same slot.
+        // Short enough that a Wanted alert can still follow a call-me alert.
         var now = DateTime.UtcNow;
-        if ((now - _lastPlayUtc).TotalMilliseconds < 1200)
+        if ((now - _lastPlayUtc).TotalMilliseconds < 400)
             return;
         _lastPlayUtc = now;
 

@@ -16,9 +16,17 @@ public sealed class SlotTiming
     public void SetMode(string mode)
     {
         Mode = string.IsNullOrWhiteSpace(mode) ? "FT8" : mode.Trim().ToUpperInvariant();
-        SlotSeconds = Mode == "FT4" ? 7 : 15;
+        SlotSeconds = Mode switch
+        {
+            "FT4" => 7,
+            "WSPR2" or "WSPR" => 120,
+            _ => 15
+        };
         _lastSlot = -1;
     }
+
+    public bool IsWspr =>
+        Mode is "WSPR2" or "WSPR";
 
     public void Tick(DateTime utc)
     {

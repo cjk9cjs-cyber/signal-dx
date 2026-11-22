@@ -208,7 +208,17 @@
                 <TextBlock Text="PSK Reporter" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
                 <CheckBox Content="Enable PSK Reporter spotting" IsChecked="{Binding PskReporterEnabled}" Margin="0,0,0,6"/>
                 <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           Text="Sends decoded calls (call, RF freq, SNR, mode) to report.pskreporter.info every ~2 minutes. Requires your call and grid."/>
+                           Text="Sends decoded FT8/FT4/WSPR spots (call, RF freq, SNR, mode) to report.pskreporter.info every ~2 minutes. WSPR2 is reported as mode WSPR. Requires your call and grid."/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="WSPRnet" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Upload WSPR spots to wsprnet.org" IsChecked="{Binding WsprUploadSpots}" Margin="0,0,0,6"/>
+                <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="In WSPR2 mode, decoded spots are also posted to wsprnet.org (single-spot POST / batch MEPT). Independent of PSK Reporter — enable both to report to both. Requires your call and grid."/>
               </StackPanel>
             </Border>
 
@@ -365,6 +375,70 @@
                            ToolTip="Leave blank for the built-in call-alert.wav"/>
                 </DockPanel>
               </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- Wanted -->
+      <TabItem Header="Wanted">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Wanted alerts" FontWeight="SemiBold"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Audio alert when a Wanted station is decoded"
+                          IsChecked="{Binding WantedAlertEnabled}" Margin="0,0,0,6"/>
+                <CheckBox Content="CQ only (alert when they call out, not every decode)"
+                          IsChecked="{Binding WantedAlertCqOnly}" Margin="0,0,0,8"/>
+                <DockPanel Margin="0,0,0,8">
+                  <Label Content="Wanted WAV" Width="100" VerticalAlignment="Center"/>
+                  <TextBox Text="{Binding WantedAlertSoundPath, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Leave blank to use the Call alert WAV / built-in call-alert.wav"/>
+                </DockPanel>
+                <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Matches the transmitting station’s call, US/CA state, or country. Plays an audio alert and highlights the row in Band Activity."/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Wanted list" FontWeight="SemiBold"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                  <ComboBox Width="100" ItemsSource="{Binding WantedKindChoices}"
+                            SelectedIndex="{Binding SelectedWantedKindIndex}"
+                            VerticalAlignment="Center"
+                            ToolTip="Call = exact callsign · State = IL / ON · Country = Japan / England"/>
+                  <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddWantedCommand}"
+                          Style="{StaticResource AccentButton}" MinWidth="72" Margin="8,0,0,0"/>
+                  <TextBox Margin="8,0,0,0"
+                           Text="{Binding NewWantedValue, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Examples: K1ABC · IL · Japan · England"/>
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0"
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           Text="{Binding WantedFilePath, StringFormat=Saved to {0}}"/>
+                <ListBox ItemsSource="{Binding WantedItems}" MinHeight="220"
+                         Background="#0E1626" BorderBrush="{StaticResource BorderBrush}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <DockPanel Margin="4,2">
+                        <Button DockPanel.Dock="Right" Content="Remove"
+                                Command="{Binding DataContext.RemoveWantedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                Padding="8,2" Margin="8,0,0,0"/>
+                        <TextBlock Text="{Binding Display}" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextBrush}"/>
+                      </DockPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
             </Border>
           </StackPanel>
         </ScrollViewer>

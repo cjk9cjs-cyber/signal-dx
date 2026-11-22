@@ -2,7 +2,7 @@
 ; Built by scripts\build-installer.ps1 (defines MyAppVersion / PublishDir)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.19.0"
+  #define MyAppVersion "1.27.0"
 #endif
 #ifndef PublishDir
   #define PublishDir "..\artifacts\publish\win-x64"

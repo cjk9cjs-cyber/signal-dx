@@ -41,30 +41,55 @@ public static class Ft8MessageBuilder
     }
 
     /// <summary>
-    /// Parse FT8 text. DxCall is always the transmitting station (the one calling),
-    /// not the station being called — so country/state/distance match the signal on air.
+    /// Parse FT8 text. DxCall is always the transmitting station (second callsign / CQ call),
+    /// never the station being addressed — so Band Activity flags match the signal on air.
     /// CQ CALL GRID → CALL.  CALLED CALLER GRID/SNR → CALLER.
     /// </summary>
     public static (string? DxCall, string? DxGrid, bool IsCq) Parse(string message)
     {
-        var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // Strip local TX arrow if present.
+        string msg = (message ?? "").Trim();
+        if (msg.StartsWith('→') || msg.StartsWith("->", StringComparison.Ordinal))
+            msg = msg.TrimStart('→', '-', '>', ' ').Trim();
+
+        var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) return (null, null, false);
 
-        bool isCq = parts[0].Equals("CQ", StringComparison.OrdinalIgnoreCase);
+        bool isCq = parts[0] is "CQ" or "QRZ" or "DE";
         if (isCq)
         {
             string? call = parts.Length > 1 ? parts[1] : null;
             // Directed CQ: CQ DX K1ABC FN42
-            if (parts.Length >= 4 && call is "DX" or "NA" or "EU" or "AS" or "SA" or "OC" or "AF")
+            if (parts.Length >= 4 && call is "DX" or "NA" or "EU" or "AS" or "SA" or "OC" or "AF" or "POTA" or "SOTA")
                 call = parts[2];
+            if (!LooksLikeCall(call))
+                call = null;
             string? grid = LooksLikeGrid(parts[^1]) ? parts[^1] : null;
-            return (call, grid, true);
+            return (call, grid, parts[0].Equals("CQ", StringComparison.OrdinalIgnoreCase));
         }
 
-        // Standard QSO: CALLED CALLER [grid|report|…] — caller is the transmitter.
+        // Standard QSO: CALLED CALLER [grid|report|…] — caller (2nd) is the transmitter.
         string? dx = parts.Length >= 2 ? parts[1] : parts[0];
+        if (!LooksLikeCall(dx))
+            dx = null;
         string? g = parts.Length >= 3 && LooksLikeGrid(parts[^1]) ? parts[^1] : null;
         return (dx, g, false);
+    }
+
+    /// <summary>True if token looks like a callsign (not a report / 73 / grid).</summary>
+    public static bool LooksLikeCall(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        s = s.Trim();
+        if (s.Length is < 3 or > 18) return false;
+        if (s.StartsWith('<')) return false; // hashed / unresolved
+        if (s is "CQ" or "QRZ" or "DE" or "DX" or "RRR" or "RR73" or "73") return false;
+        if (LooksLikeGrid(s)) return false;
+        if (s[0] is '+' or '-' || char.IsDigit(s[0])) return false; // SNR / R-report
+        if (s.StartsWith('R') && s.Length >= 2 && (s[1] is '+' or '-' || char.IsDigit(s[1])))
+            return false;
+        // Must contain a digit (standard call) or slash compound.
+        return s.Any(char.IsDigit) || s.Contains('/');
     }
 
     static bool LooksLikeGrid(string s)

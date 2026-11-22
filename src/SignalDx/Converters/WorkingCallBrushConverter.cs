@@ -8,12 +8,14 @@ namespace SignalDx.Converters;
 /// RX/Band row colors:
 /// Yellow — other station answered / called us (IsToMe).
 /// Green — we are calling CQ or a specific transmitter (our TX / working call).
-/// Bindings: IsToMe, IsWorking, hit.DxCall, Message, window DxCall.
+/// Muted — previously logged / worked station (also struck through in the row style).
+/// Bindings: IsToMe, IsWorking, hit.DxCall, Message, window DxCall, IsPreviouslyWorked.
 /// </summary>
 public sealed class WorkingCallBrushConverter : IMultiValueConverter
 {
     public static readonly SolidColorBrush Yellow = Create("#FFD400");
     public static readonly SolidColorBrush Green = Create("#4FCF8A");
+    public static readonly SolidColorBrush Worked = Create("#6B7C92");
     public static readonly SolidColorBrush Normal = Create("#E7EEF8");
 
     static SolidColorBrush Create(string hex)
@@ -32,8 +34,9 @@ public sealed class WorkingCallBrushConverter : IMultiValueConverter
         string hitDx = values[2] as string ?? "";
         string message = values[3] as string ?? "";
         string workDx = (values[4] as string ?? "").Trim();
+        bool previouslyWorked = values.Length >= 6 && values[5] is true;
 
-        // Their answer / call to us stays yellow.
+        // Their answer / call to us stays yellow (even if worked before).
         if (isToMe)
             return Yellow;
 
@@ -49,6 +52,9 @@ public sealed class WorkingCallBrushConverter : IMultiValueConverter
             (hitDx.Equals(workDx, StringComparison.OrdinalIgnoreCase) ||
              message.Contains(workDx, StringComparison.OrdinalIgnoreCase)))
             return Green;
+
+        if (previouslyWorked)
+            return Worked;
 
         return Normal;
     }

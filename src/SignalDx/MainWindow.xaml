@@ -11,8 +11,12 @@
         WindowStartupLocation="Manual">
   <Window.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    <conv:InverseBoolToVisibilityConverter x:Key="InvBoolToVis"/>
     <conv:BoolToBrushConverter x:Key="CqHighlight"
                                TrueBrush="#33280A"
+                               FalseBrush="Transparent"/>
+    <conv:BoolToBrushConverter x:Key="WantedHighlight"
+                               TrueBrush="#1A3D2A"
                                FalseBrush="Transparent"/>
     <conv:WorkingCallBrushConverter x:Key="WorkingCallBrushConverter"/>
     <conv:FlagImageConverter x:Key="FlagImage"/>
@@ -26,9 +30,20 @@
             <Binding Path="DxCall"/>
             <Binding Path="Message"/>
             <Binding Path="DataContext.DxCall" RelativeSource="{RelativeSource AncestorType=Window}"/>
+            <Binding Path="IsPreviouslyWorked"/>
           </MultiBinding>
         </Setter.Value>
       </Setter>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsWanted}" Value="True">
+          <Setter Property="Background" Value="#1A3D2A"/>
+          <Setter Property="BorderBrush" Value="#4FCF8A"/>
+          <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding IsPreviouslyWorked}" Value="True">
+          <Setter Property="Opacity" Value="0.78"/>
+        </DataTrigger>
+      </Style.Triggers>
     </Style>
     <Style x:Key="ActivityCellStyle" TargetType="DataGridCell">
       <Setter Property="BorderThickness" Value="0"/>
@@ -38,6 +53,15 @@
         <Trigger Property="IsSelected" Value="True">
           <Setter Property="Background" Value="#1C3A55"/>
         </Trigger>
+      </Style.Triggers>
+    </Style>
+    <!-- Strikethrough for previously worked transmitters (text cells). -->
+    <Style x:Key="ActivityTextBlockStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsPreviouslyWorked}" Value="True">
+          <Setter Property="TextDecorations" Value="Strikethrough"/>
+        </DataTrigger>
       </Style.Triggers>
     </Style>
   </Window.Resources>
@@ -84,9 +108,12 @@
             <Label Content="Dial" Margin="8,0,0,0"/>
             <TextBox Width="90" Text="{Binding DialMhz, UpdateSourceTrigger=PropertyChanged}"/>
             <Label Content="MHz" Margin="2,0,0,0"/>
-            <Label Content="Power" Margin="8,0,0,0"/>
-            <TextBox Width="50" Text="{Binding TxPower, UpdateSourceTrigger=PropertyChanged}"/>
-            <Label Content="W" Margin="2,0,0,0"/>
+            <Label Content="Power" Margin="8,0,0,0"
+                   Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
+            <TextBox Width="50" Text="{Binding TxPower, UpdateSourceTrigger=PropertyChanged}"
+                     Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
+            <Label Content="W" Margin="2,0,0,0"
+                   Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
             <Label Content="{Binding TxDriveLabel}" Margin="12,0,4,0" MinWidth="88"
                    Foreground="{StaticResource WarnBrush}"/>
             <Slider Width="160" Minimum="0" Maximum="100" TickFrequency="1"
@@ -136,8 +163,10 @@
                     ToolTip="Pick a dial, then Apply band. Startup keeps your last saved band."/>
           <Button Content="Apply band" Command="{Binding ApplyBandCommand}" Margin="6,0,0,0"
                   ToolTip="Set Band / Dial (and CAT follow-dial) from the selected preset"/>
-          <Button Content="CQ" Command="{Binding StartCqCommand}" Style="{StaticResource TxButton}" Margin="12,0,0,0"/>
-          <Button Content="Reset seq" Command="{Binding ResetSeqCommand}"/>
+          <Button Content="CQ" Command="{Binding StartCqCommand}" Style="{StaticResource TxButton}" Margin="12,0,0,0"
+                  Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
+          <Button Content="Reset seq" Command="{Binding ResetSeqCommand}"
+                  Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
         </WrapPanel>
       </Grid>
     </Border>
@@ -165,7 +194,7 @@
                        Foreground="{StaticResource MutedBrush}"/>
           </DockPanel>
           <ProgressBar Value="{Binding SlotProgress}" Maximum="1"
-                       ToolTip="FT8/FT4 slot progress (red while transmitting)">
+                       ToolTip="FT8/FT4/WSPR slot progress (red while transmitting)">
             <ProgressBar.Style>
               <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
@@ -184,12 +213,13 @@
     <Grid x:Name="MainLayoutGrid">
       <Grid.RowDefinitions>
         <RowDefinition x:Name="MainRowOps" Height="Auto"/>
+        <RowDefinition x:Name="MainRowWspr" Height="Auto"/>
         <RowDefinition x:Name="MainRowWaterfall" Height="2.2*" MinHeight="80"/>
         <RowDefinition Height="6"/>
         <RowDefinition x:Name="MainRowActivity" Height="3.5*" MinHeight="160"/>
       </Grid.RowDefinitions>
 
-      <!-- Ops row -->
+      <!-- Ops row (second toolbar) -->
       <Border Grid.Row="0" Background="{StaticResource PanelBrush}"
               BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
         <DockPanel>
@@ -203,16 +233,22 @@
             <Button Content="Tune" Command="{Binding TuneCommand}"
                     Style="{StaticResource TuneToggleButton}"
                     ToolTip="Continuous tone at Tx Hz for SWR/ALC — max 60s; click again or Halt to stop"/>
-            <CheckBox Content="Auto seq" IsChecked="{Binding AutoSequence}" Margin="12,0,0,0"/>
+            <CheckBox Content="Auto seq" IsChecked="{Binding AutoSequence}" Margin="12,0,0,0"
+                      Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
             <CheckBox Content="Call alert" IsChecked="{Binding CallAlertEnabled}"
+                      Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"
                       ToolTip="Play a sound when a station calls your callsign"/>
+            <CheckBox Content="Wanted alert" IsChecked="{Binding WantedAlertEnabled}" Margin="8,0,0,0"
+                      ToolTip="Play a sound when a Wanted call/state/country is decoded (Settings → Wanted)"/>
             <CheckBox Content="Simulate" IsChecked="{Binding SimulateDecodes}"/>
-            <CheckBox Content="TX even" IsChecked="{Binding TxEven}"/>
-            <CheckBox Content="Lock Tx=Rx" IsChecked="{Binding LockTxToRx}"/>
+            <CheckBox Content="TX even" IsChecked="{Binding TxEven}"
+                      Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
+            <CheckBox Content="Lock Tx=Rx" IsChecked="{Binding LockTxToRx}" Margin="12,0,0,0"/>
             <Label Content="Rx" Margin="12,0,0,0"/>
             <TextBox Width="55" Text="{Binding RxHz, UpdateSourceTrigger=PropertyChanged}"/>
             <Label Content="Tx" Margin="8,0,0,0"/>
-            <TextBox Width="55" Text="{Binding TxHz, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBox Width="55" Text="{Binding TxHz, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="{Binding TxHzToolTip}"/>
             <Label Content="Colors" Margin="12,0,0,0"/>
             <ComboBox Width="100" ItemsSource="{Binding WaterfallPalettes}"
                       SelectedItem="{Binding SelectedWaterfallPalette}"/>
@@ -230,28 +266,79 @@
         </DockPanel>
       </Border>
 
+      <!-- WSPR-2 toolbar (below ops; shown only in WSPR2 mode) -->
+      <Border Grid.Row="1" Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8,6"
+              Margin="0,0,0,8"
+              Visibility="{Binding IsWsprMode, Converter={StaticResource BoolToVis}}">
+        <WrapPanel VerticalAlignment="Center">
+          <TextBlock Text="WSPR-2" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"
+                     VerticalAlignment="Center" Margin="0,0,12,0"/>
+          <Button Content="Tx next" Command="{Binding WsprTxNextCommand}" Style="{StaticResource TxButton}"
+                  ToolTip="Force a WSPR transmission on the next 2-minute slot (JTDX/WSJT-X Tx next)"/>
+          <Label Content="Tx %" Margin="12,0,0,0"
+                 ToolTip="Average percentage of 2-minute slots used for TX (random, like JTDX/WSJT-X)"/>
+          <TextBox Width="40" Text="{Binding WsprTxPercent, UpdateSourceTrigger=PropertyChanged}"
+                   ToolTip="0 = never (unless Tx next), 100 = every slot, typical 20–25"/>
+          <Label Content="Power" Margin="12,0,0,0"/>
+          <ComboBox Width="140"
+                    ItemsSource="{Binding WsprPowerChoices}"
+                    SelectedItem="{Binding SelectedWsprPowerLabel}"
+                    ToolTip="WSPR reported TX power (dBm) — encoded in the beacon"/>
+          <Label Content="Tx Hz" Margin="12,0,0,0"/>
+          <TextBox Width="55" Text="{Binding TxHz, UpdateSourceTrigger=PropertyChanged}"
+                   ToolTip="{Binding TxHzToolTip}"/>
+          <CheckBox Content="Upload spots" IsChecked="{Binding WsprUploadSpots}" Margin="14,4,0,0"
+                    ToolTip="Upload decoded WSPR spots to wsprnet.org"/>
+          <TextBlock Text="{Binding WsprScheduleText}" Margin="14,4,0,0" VerticalAlignment="Center"
+                     Foreground="{StaticResource CqBrush}" MinWidth="160"/>
+          <TextBlock Text="{Binding FreeText}" Margin="14,4,0,0" VerticalAlignment="Center"
+                     Foreground="{StaticResource MutedBrush}"
+                     ToolTip="Beacon message (call grid dBm)"/>
+        </WrapPanel>
+      </Border>
+
       <!-- Waterfall -->
-      <Border Grid.Row="1" Background="#05080F" BorderBrush="{StaticResource BorderBrush}"
+      <Border Grid.Row="2" Background="#05080F" BorderBrush="{StaticResource BorderBrush}"
               BorderThickness="1" ClipToBounds="True">
         <Grid Background="#05080F">
           <controls:WaterfallControl x:Name="Waterfall"/>
           <DockPanel Margin="8,6,8,30" IsHitTestVisible="False">
-            <TextBlock DockPanel.Dock="Top" Text="WATERFALL — click a trace for Rx/Tx  ·  scale bar shows Hz"
-                       Foreground="#6F86A8" FontSize="11"/>
-            <TextBlock DockPanel.Dock="Bottom" HorizontalAlignment="Right"
-                       Text="L-click Rx(+Tx)  ·  R-click/Shift Tx  ·  cyan=Rx  orange=Tx"
-                       Foreground="#6F86A8" FontSize="11"/>
+            <TextBlock DockPanel.Dock="Top" Foreground="#6F86A8" FontSize="11">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Text" Value="WATERFALL — click a trace for Rx/Tx  ·  scale bar shows Hz"/>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsWsprMode}" Value="True">
+                      <Setter Property="Text" Value="WSPR-2 — 1400–1600 Hz passband  ·  2-minute time marks  ·  click to set Tx"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
+            <TextBlock DockPanel.Dock="Bottom" HorizontalAlignment="Right" Foreground="#6F86A8" FontSize="11">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Text" Value="L-click Rx(+Tx)  ·  R-click/Shift Tx  ·  cyan=Rx  orange=Tx"/>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsWsprMode}" Value="True">
+                      <Setter Property="Text" Value="Avoid crowded 1500 Hz  ·  cyan=Rx  orange=Tx  ·  soft traces = weak WSPR"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
           </DockPanel>
         </Grid>
       </Border>
 
-      <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+      <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                     ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
                     Background="{StaticResource BorderBrush}" ShowsPreview="True"
                     ToolTip="Drag to resize waterfall / activity"/>
 
       <!-- Activity panes + macros -->
-      <Grid x:Name="ActivityLayoutGrid" Grid.Row="3">
+      <Grid x:Name="ActivityLayoutGrid" Grid.Row="4">
         <Grid.ColumnDefinitions>
           <ColumnDefinition x:Name="ColBand" Width="1.4*" MinWidth="160"/>
           <ColumnDefinition Width="6"/>
@@ -279,15 +366,20 @@
               </DataGrid.RowStyle>
               <DataGrid.Columns>
                 <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}"
-                                   Width="70" MinWidth="40"/>
+                                   Width="70" MinWidth="40"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}"
-                                   Width="44" MinWidth="28"/>
+                                   Width="44" MinWidth="28"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="DT" Binding="{Binding Dt, StringFormat=0.00}"
-                                   Width="44" MinWidth="28"/>
+                                   Width="44" MinWidth="28"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="Hz" Binding="{Binding Hz}"
-                                   Width="50" MinWidth="32"/>
+                                   Width="50" MinWidth="32"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}"
-                                   Width="48" MinWidth="28"/>
+                                   Width="48" MinWidth="28"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTemplateColumn Header="Flag" Width="64" MinWidth="48">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
@@ -297,19 +389,22 @@
                                Width="22" Height="15" Stretch="Uniform"
                                SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
                         <TextBlock Text="{Binding FlagStateBadge}" Margin="4,0,0,0"
-                                   VerticalAlignment="Center" FontSize="11"
-                                   FontWeight="SemiBold"
+                                   Style="{StaticResource ActivityTextBlockStyle}"
+                                   FontSize="11" FontWeight="SemiBold"
                                    Foreground="{StaticResource MutedBrush}"/>
                       </StackPanel>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Country" Binding="{Binding CountryText}"
-                                   Width="120" MinWidth="48"/>
+                                   Width="120" MinWidth="48"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="ST" Binding="{Binding StateText}"
-                                   Width="44" MinWidth="28"/>
+                                   Width="44" MinWidth="28"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="Message" Binding="{Binding Message}"
-                                   Width="280" MinWidth="80"/>
+                                   Width="280" MinWidth="80"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
@@ -342,11 +437,14 @@
               </DataGrid.RowStyle>
               <DataGrid.Columns>
                 <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}"
-                                   Width="70" MinWidth="40"/>
+                                   Width="70" MinWidth="40"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}"
-                                   Width="44" MinWidth="28"/>
+                                   Width="44" MinWidth="28"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}"
-                                   Width="48" MinWidth="28"/>
+                                   Width="48" MinWidth="28"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTemplateColumn Header="Flag" Width="64" MinWidth="48">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate>
@@ -356,15 +454,16 @@
                                Width="22" Height="15" Stretch="Uniform"
                                SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
                         <TextBlock Text="{Binding FlagStateBadge}" Margin="4,0,0,0"
-                                   VerticalAlignment="Center" FontSize="11"
-                                   FontWeight="SemiBold"
+                                   Style="{StaticResource ActivityTextBlockStyle}"
+                                   FontSize="11" FontWeight="SemiBold"
                                    Foreground="{StaticResource MutedBrush}"/>
                       </StackPanel>
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Message" Binding="{Binding Message}"
-                                   Width="280" MinWidth="80"/>
+                                   Width="280" MinWidth="80"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>

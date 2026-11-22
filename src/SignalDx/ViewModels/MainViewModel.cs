@@ -16,6 +16,7 @@ using SignalDx.Geo;
 using SignalDx.Logging;
 using SignalDx.Models;
 using SignalDx.Services;
+using SignalDx.Wspr;
 
 namespace SignalDx.ViewModels;
 
@@ -23,9 +24,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 {
     readonly SettingsStore _settingsStore = new();
     readonly QsoLogStore _logStore = new();
+    readonly WorkedCallStore _workedCalls = new();
+    readonly WantedStore _wanted = new();
     readonly AudioCaptureService _capture = new();
     readonly AudioPlaybackService _playback = new();
     readonly CallAlertService _callAlert = new();
+    readonly Dictionary<string, DateTime> _wantedAlertedUtc = new(StringComparer.OrdinalIgnoreCase);
+    string _newWantedValue = "";
+    int _selectedWantedKindIndex;
     readonly SpectrumAnalyzer _spectrum = new(4096);
     readonly SlotTiming _timing = new();
     readonly SimulatedDecoder _sim = new();
@@ -39,6 +45,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromMilliseconds(100) };
     readonly DispatcherTimer _spectrumTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
     readonly DispatcherTimer _heartbeat = new() { Interval = TimeSpan.FromSeconds(15) };
+    readonly DispatcherTimer _settingsPersistTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
 
     StationSettings _settings;
     string _dxCall = "";
@@ -84,6 +91,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// so a returned call advances the macro before we TX (instead of sending the old one).
     /// </summary>
     bool _deferTxUntilDecode;
+    /// <summary>JTDX/WSJT-X “Tx next” — force TX on the next WSPR 2-minute slot once.</summary>
+    bool _wsprTxNextArmed;
+    /// <summary>Pre-scheduled TX for the upcoming WSPR slot (from Tx % random draw).</summary>
+    bool _wsprScheduleThisSlot;
+    string _wsprScheduleText = "";
+    /// <summary>True while we are pushing DATA-U / digi mode back to the radio.</summary>
+    bool _forcingDigiMode;
+    DateTime _lastDigiModeForceUtc = DateTime.MinValue;
     DateTime _cqSessionUtc;
     float[]? _txAudioCache;
     string? _txAudioCacheKey;
@@ -105,12 +120,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _settings.CustomMacros ??= Ft8MessageBuilder.DefaultCustomMacros
             .Select(m => new CustomMacroEntry { Label = m.Label, Template = m.Template })
             .ToList();
+        // Older settings.json omitted Wanted* → deserialized as false; turn alerts on once.
+        if (!_settings.WantedFeatureInitialized)
+        {
+            _settings.WantedAlertEnabled = true;
+            _settings.WantedAlertCqOnly = true;
+            _settings.WantedFeatureInitialized = true;
+            _settingsStore.Save(_settings);
+        }
+        InitializeAndRestoreAudioHzMemory();
         PreferJtdxIfAvailable();
 
         foreach (var e in _logStore.Entries)
             Log.Add(e);
+        // Seed / refresh the running worked-calls text file from the QSO log.
+        _workedCalls.MergeFromLog(_logStore.Entries);
 
         RebuildMacroList();
+        ReloadWantedList();
 
         InputDevices = new ObservableCollection<string>();
         OutputDevices = new ObservableCollection<string>();
@@ -120,7 +147,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         HamlibModes = new ObservableCollection<string>([
             "DATA-U", "PKTUSB", "DIGU", "USB-D", "USB", "LSB", "PKTLSB", "DATA-L", "FM", "AM", "CW"
         ]);
-        if (string.Equals(_settings.HamlibMode, "USB", StringComparison.OrdinalIgnoreCase))
+        // This app always drives digi USB-DATA — never keep plain USB/LSB as the preferred CAT mode.
+        if (!LooksDigiMode(_settings.HamlibMode))
             _settings.HamlibMode = "DATA-U";
         WaterfallPalettes = new ObservableCollection<string>(WaterfallPalette.Names);
         RefreshPorts();
@@ -157,6 +185,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ApplyBandCommand = new RelayCommand(ApplySelectedBand);
         ExportAdifCommand = new RelayCommand(ExportAdif);
         StartCqCommand = new RelayCommand(StartCq);
+        WsprTxNextCommand = new RelayCommand(ArmWsprTxNext, () => IsWsprMode && !IsTransmitting);
         ResetSeqCommand = new RelayCommand(() =>
         {
             _holdCq = false;
@@ -167,6 +196,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AddCustomMacroCommand = new RelayCommand(AddCustomMacro);
         RemoveCustomMacroCommand = new RelayCommand(p => RemoveCustomMacro(p as MacroDisplayItem));
         ApplyManualDxCommand = new RelayCommand(ApplyManualDxCall);
+        AddWantedCommand = new RelayCommand(AddWantedItem, () => !string.IsNullOrWhiteSpace(NewWantedValue));
+        RemoveWantedCommand = new RelayCommand(p => RemoveWantedItem(p as WantedEntry));
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
         RefreshHamlibModelsCommand = new RelayCommand(() => ReloadHamlibModels(forceRefresh: true));
         StartRigctldCommand = new RelayCommand(StartRigctld);
@@ -198,10 +229,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         _timing.SetMode(Mode);
         _external.Configure(_settings);
+        SyncWsprPowerFromSettings();
+        if (IsWsprMode)
+        {
+            RefreshWsprFreeText();
+            ScheduleNextWsprSlot(announce: false);
+        }
 
         _clock.Tick += OnClock;
         _spectrumTimer.Tick += OnSpectrumTick;
         _heartbeat.Tick += (_, _) => _external.Heartbeat(_settings);
+        _settingsPersistTimer.Tick += (_, _) =>
+        {
+            _settingsPersistTimer.Stop();
+            SaveSettingsNow();
+        };
         _clock.Start();
         _spectrumTimer.Start();
         _heartbeat.Start();
@@ -249,12 +291,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<DecodeHit> RxActivity { get; } = [];
     public ObservableCollection<QsoEntry> Log { get; } = [];
     public ObservableCollection<MacroDisplayItem> Macros { get; } = [];
+    public ObservableCollection<WantedEntry> WantedItems { get; } = [];
+    public ObservableCollection<string> WantedKindChoices { get; } = ["Call", "State", "Country"];
     public ObservableCollection<string> InputDevices { get; }
     public ObservableCollection<string> OutputDevices { get; }
     public ObservableCollection<string> ComPorts { get; }
     public ObservableCollection<string> CatBackends { get; }
     public ObservableCollection<string> BandPresets { get; } = [];
-    public ObservableCollection<string> Modes { get; } = ["FT8", "FT4"];
+    public ObservableCollection<string> Modes { get; } = ["FT8", "FT4", "WSPR2"];
+
+    public bool IsWsprMode =>
+        Mode.Equals("WSPR2", StringComparison.OrdinalIgnoreCase) ||
+        Mode.Equals("WSPR", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsFtDigiMode => !IsWsprMode;
+
+    public ObservableCollection<string> WsprPowerChoices { get; } = new(
+        WsprEncoder.ValidPowerDbm.Select(WsprEncoder.FormatPowerLabel));
+
     public ObservableCollection<string> HamlibModelChoices { get; } = [];
     public ObservableCollection<string> HamlibModes { get; }
     public ObservableCollection<string> WaterfallPalettes { get; }
@@ -275,11 +329,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ApplyBandCommand { get; }
     public ICommand ExportAdifCommand { get; }
     public ICommand StartCqCommand { get; }
+    public ICommand WsprTxNextCommand { get; }
     public ICommand ResetSeqCommand { get; }
     public ICommand ResetTxMacrosCommand { get; }
     public ICommand AddCustomMacroCommand { get; }
     public ICommand RemoveCustomMacroCommand { get; }
     public ICommand ApplyManualDxCommand { get; }
+    public ICommand AddWantedCommand { get; }
+    public ICommand RemoveWantedCommand { get; }
     public ICommand RefreshPortsCommand { get; }
     public ICommand RefreshHamlibModelsCommand { get; }
     public ICommand StartRigctldCommand { get; }
@@ -313,6 +370,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settings.MyCall = (value ?? "").Trim().ToUpperInvariant();
             Raise();
             RefreshMacroPreviews();
+            if (IsWsprMode) RefreshWsprFreeText();
         }
     }
 
@@ -324,6 +382,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settings.MyGrid = value;
             Raise();
             RefreshMacroPreviews();
+            if (IsWsprMode) RefreshWsprFreeText();
         }
     }
 
@@ -345,14 +404,391 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _settings.Mode;
         set
         {
+            string previous = _settings.Mode;
+            if (string.Equals(previous, value, StringComparison.OrdinalIgnoreCase))
+                return;
+            SwapAudioHzForModeSwitch(previous, value);
             _settings.Mode = value;
             _timing.SetMode(value);
-            if (_waterfall is not null)
-                _waterfall.ChannelWidthHz = value.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 90 : 50;
+            ApplyModeToWaterfall();
+            if (IsWsprMode)
+                EnterWsprMode();
+            else if (IsWsprModeName(previous))
+                LeaveWsprMode();
             Raise();
+            Raise(nameof(IsWsprMode));
+            Raise(nameof(IsFtDigiMode));
+            Raise(nameof(TxHzToolTip));
+            CommandManager.InvalidateRequerySuggested();
             RebuildBandPresetList();
         }
     }
+
+    static bool IsWsprModeName(string? mode) =>
+        mode is not null &&
+        (mode.Equals("WSPR2", StringComparison.OrdinalIgnoreCase) ||
+         mode.Equals("WSPR", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Keep FT8/FT4 and WSPR audio markers separate so entering WSPR does not
+    /// permanently overwrite digi Tx/Rx (and vice versa).
+    /// </summary>
+    void SwapAudioHzForModeSwitch(string previous, string next)
+    {
+        bool wasWspr = IsWsprModeName(previous);
+        bool nowWspr = IsWsprModeName(next);
+        if (wasWspr == nowWspr) return;
+
+        RememberAudioHzForMode(wasWspr);
+        ApplyAudioHzFromModeMemory(nowWspr);
+        ScheduleSettingsPersist();
+    }
+
+    void InitializeAndRestoreAudioHzMemory()
+    {
+        if (!_settings.AudioHzMemoryInitialized)
+        {
+            // First run of this feature: seed both banks from whatever is live now.
+            bool wspr = IsWsprModeName(_settings.Mode);
+            RememberAudioHzForMode(wspr);
+            if (wspr)
+            {
+                // Digi bank still default — keep last live digi if Tx was already digi-range.
+                if (_settings.DigiTxHz is < 200 or > 3000) _settings.DigiTxHz = 1500;
+                if (_settings.DigiRxHz is < 200 or > 3000) _settings.DigiRxHz = _settings.DigiTxHz;
+            }
+            else
+            {
+                if (_settings.WsprAudioTxHz is < 1400 or > 1600) _settings.WsprAudioTxHz = 1500;
+                if (_settings.WsprAudioRxHz is < 1400 or > 1600) _settings.WsprAudioRxHz = _settings.WsprAudioTxHz;
+            }
+            _settings.AudioHzMemoryInitialized = true;
+            _settingsStore.Save(_settings);
+        }
+
+        // Authoritative restore for the mode we are launching into.
+        ApplyAudioHzFromModeMemory(IsWsprModeName(_settings.Mode));
+    }
+
+    void RememberAudioHzForMode(bool wspr)
+    {
+        if (wspr)
+        {
+            _settings.WsprAudioTxHz = ClampWsprAudioHz(TxHz);
+            _settings.WsprAudioRxHz = ClampWsprAudioHz(RxHz);
+        }
+        else
+        {
+            _settings.DigiTxHz = ClampDigiAudioHz(TxHz);
+            _settings.DigiRxHz = ClampDigiAudioHz(RxHz);
+        }
+        _settings.AudioHzMemoryInitialized = true;
+    }
+
+    void ApplyAudioHzFromModeMemory(bool wspr)
+    {
+        if (wspr)
+        {
+            int tx = ClampWsprAudioHz(_settings.WsprAudioTxHz);
+            int rx = ClampWsprAudioHz(_settings.WsprAudioRxHz);
+            SetAudioHzCore(tx, rx, remember: false);
+        }
+        else
+        {
+            int tx = ClampDigiAudioHz(_settings.DigiTxHz);
+            int rx = ClampDigiAudioHz(_settings.DigiRxHz);
+            SetAudioHzCore(tx, rx, remember: false);
+        }
+    }
+
+    void SetAudioHzCore(int tx, int rx, bool remember)
+    {
+        _settings.TxHz = tx;
+        _settings.RxHz = rx;
+        if (remember)
+            RememberAudioHzForMode(IsWsprMode);
+        if (_waterfall is not null)
+        {
+            _waterfall.TxHz = tx;
+            _waterfall.RxHz = rx;
+        }
+        Raise(nameof(TxHz));
+        Raise(nameof(RxHz));
+        InvalidateTxAudioCache();
+        RebuildRxFilter();
+        RefreshCurrentFreqText();
+    }
+
+    static int ClampDigiAudioHz(int hz) => hz is >= 200 and <= 3000 ? hz : 1500;
+    static int ClampWsprAudioHz(int hz) => hz is >= 1400 and <= 1600 ? hz : 1500;
+
+    void ScheduleSettingsPersist()
+    {
+        _settingsPersistTimer.Stop();
+        _settingsPersistTimer.Start();
+    }
+
+    void EnterWsprMode()
+    {
+        // Beacon mode — no FT8 auto-seq / CQ hold.
+        _holdCq = false;
+        AutoSequence = false;
+        SyncWsprPowerFromSettings();
+        RefreshWsprFreeText();
+        ScheduleNextWsprSlot(announce: false);
+        Status = "WSPR-2 — Enable TX + Tx% (or Tx next). Spots → wsprnet.org when Upload spots is on.";
+    }
+
+    /// <summary>
+    /// Drop WSPR beacon state when returning to FT8/FT4 so FreeText / cache / auto-seq
+    /// are not still armed for "CALL GRID dBm".
+    /// </summary>
+    void LeaveWsprMode()
+    {
+        _wsprTxNextArmed = false;
+        _wsprScheduleThisSlot = false;
+        WsprScheduleText = "";
+        _holdCq = false;
+        _deferTxUntilDecode = false;
+        // WSPR Enable TX must not carry into FT8 — otherwise the next even/odd slot
+        // keys CQ automatically from the FreeText we load below.
+        if (EnableTx)
+            EnableTx = false;
+        if (IsTransmitting || IsTuning)
+            _ = HaltTxAsync();
+        InvalidateTxAudioCache();
+        AutoSequence = true;
+        _seq.Reset();
+        PhaseLabel = "Idle";
+        // Replace leftover beacon text — Enable TX again when ready to call CQ.
+        FreeText = BuildCqMessage();
+        PrimeTxAudioCache(FreeText);
+        RefreshMacroPreviews();
+        Status = $"{Mode} mode — WSPR cleared; Enable TX when ready";
+    }
+
+    public string TxHzToolTip => IsWsprMode
+        ? "WSPR audio Tx Hz (use 1400–1600; avoid crowded 1500)"
+        : "FT8/FT4 Tx audio Hz";
+
+    public int WsprTxPercent
+    {
+        get => _settings.WsprTxPercent;
+        set
+        {
+            int v = Math.Clamp(value, 0, 100);
+            if (_settings.WsprTxPercent == v) return;
+            _settings.WsprTxPercent = v;
+            Raise();
+            if (IsWsprMode)
+                ScheduleNextWsprSlot(announce: true);
+        }
+    }
+
+    public bool WsprUploadSpots
+    {
+        get => _settings.WsprUploadSpots;
+        set
+        {
+            if (_settings.WsprUploadSpots == value) return;
+            _settings.WsprUploadSpots = value;
+            Raise();
+            _external.Configure(_settings);
+        }
+    }
+
+    public string SelectedWsprPowerLabel
+    {
+        get => WsprEncoder.FormatPowerLabel(_settings.WsprPowerDbm);
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            // "37 dBm (5 W)" → 37
+            int space = value.IndexOf(' ');
+            if (space <= 0 || !int.TryParse(value[..space], out int dbm)) return;
+            dbm = WsprEncoder.SnapPower(dbm);
+            if (_settings.WsprPowerDbm == dbm) return;
+            _settings.WsprPowerDbm = dbm;
+            _settings.TxPower = FormatWatts(WsprEncoder.DbmToWatts(dbm));
+            Raise();
+            Raise(nameof(TxPower));
+            if (IsWsprMode) RefreshWsprFreeText();
+            _ = PushRfPowerAsync();
+        }
+    }
+
+    public string WsprScheduleText
+    {
+        get => _wsprScheduleText;
+        set => SetField(ref _wsprScheduleText, value ?? "");
+    }
+
+    public bool WsprTxNextArmed
+    {
+        get => _wsprTxNextArmed;
+        private set
+        {
+            if (_wsprTxNextArmed == value) return;
+            _wsprTxNextArmed = value;
+            Raise();
+            RefreshWsprScheduleText();
+        }
+    }
+
+    void ArmWsprTxNext()
+    {
+        if (!IsWsprMode) return;
+        RefreshWsprFreeText();
+        EnableTx = true;
+        WsprTxNextArmed = true;
+        Status = $"WSPR Tx next armed → {FreeText} @ {TxHz} Hz (Tx%={WsprTxPercent})";
+        // If we are still early enough in the current 2-min slot, key now.
+        if (!IsTransmitting)
+            TryStartTxNowIfOurSlot(WsprEncoder.SignalDurationSec + WsprEncoder.LeadInSec - 1.0);
+    }
+
+    void SyncWsprPowerFromSettings()
+    {
+        // Prefer explicit dBm; if watts changed elsewhere, snap dBm from watts.
+        int fromWatts = WsprEncoder.WattsToDbm(ParseWatts(TxPower));
+        if (_settings.WsprPowerDbm <= 0)
+            _settings.WsprPowerDbm = fromWatts;
+        _settings.WsprPowerDbm = WsprEncoder.SnapPower(_settings.WsprPowerDbm);
+        Raise(nameof(SelectedWsprPowerLabel));
+    }
+
+    static string FormatWatts(double watts)
+    {
+        if (watts >= 1) return watts.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        if (watts >= 0.001) return (watts * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        return watts.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Random TX schedule like WSJT-X/JTDX: next slot TX with probability Tx%.</summary>
+    void ScheduleNextWsprSlot(bool announce)
+    {
+        int pct = Math.Clamp(_settings.WsprTxPercent, 0, 100);
+        if (pct <= 0)
+            _wsprScheduleThisSlot = false;
+        else if (pct >= 100)
+            _wsprScheduleThisSlot = true;
+        else
+            _wsprScheduleThisSlot = Random.Shared.Next(100) < pct;
+
+        RefreshWsprScheduleText();
+        if (announce && IsWsprMode)
+        {
+            Status = _wsprScheduleThisSlot
+                ? $"WSPR next slot: TX scheduled (Tx%={pct})"
+                : $"WSPR next slot: RX only (Tx%={pct})";
+        }
+    }
+
+    void RefreshWsprScheduleText()
+    {
+        if (!IsWsprMode)
+        {
+            WsprScheduleText = "";
+            return;
+        }
+
+        var bits = new List<string>();
+        if (_wsprTxNextArmed) bits.Add("Tx next");
+        bits.Add(_wsprScheduleThisSlot ? "next=TX" : "next=RX");
+        bits.Add($"Tx%{WsprTxPercent}");
+        WsprScheduleText = string.Join(" · ", bits);
+    }
+
+    bool ShouldTransmitWsprThisSlot()
+    {
+        if (!EnableTx || IsTransmitting) return false;
+        if (_wsprTxNextArmed) return true;
+        if (WsprTxPercent <= 0) return false;
+        if (WsprTxPercent >= 100) return true;
+        return _wsprScheduleThisSlot;
+    }
+
+    void ApplyModeToWaterfall()
+    {
+        if (_waterfall is null) return;
+        if (IsWsprMode)
+        {
+            // Classic WSPR USB audio passband — clean narrow view, soft traces.
+            // Tx/Rx Hz are swapped by SwapAudioHzForModeSwitch — do not overwrite digi markers here.
+            _waterfall.WsprDisplayMode = true;
+            _waterfall.ChannelWidthHz = 5;
+            _waterfall.MinHz = 1400;
+            _waterfall.MaxHz = 1600;
+            _waterfall.SnapHz = 1;
+            _waterfall.SlotSeconds = 120;
+            _waterfall.TxHz = TxHz;
+            _waterfall.RxHz = RxHz;
+            _waterfall.ResetDisplay();
+        }
+        else
+        {
+            _waterfall.WsprDisplayMode = false;
+            _waterfall.ChannelWidthHz = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 90 : 50;
+            _waterfall.MinHz = 200;
+            _waterfall.MaxHz = 3000;
+            _waterfall.SnapHz = 6.25;
+            _waterfall.SlotSeconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 7 : 15;
+            _waterfall.TxHz = TxHz;
+            _waterfall.RxHz = RxHz;
+            _waterfall.ResetDisplay();
+        }
+    }
+
+    void RefreshWsprFreeText()
+    {
+        FreeText = BuildWsprMessage();
+        InvalidateTxAudioCache();
+        PrimeTxAudioCache(FreeText);
+    }
+
+    string BuildWsprMessage()
+    {
+        try
+        {
+            int dbm = WsprEncoder.SnapPower(_settings.WsprPowerDbm);
+            if (dbm <= 0)
+                dbm = WsprEncoder.WattsToDbm(ParseWatts(TxPower));
+            string grid4 = (MyGrid ?? "FN42").Trim().ToUpperInvariant();
+            if (grid4.Length > 4) grid4 = grid4[..4];
+            return WsprEncoder.FormatMessage(MyCall, grid4, dbm);
+        }
+        catch (Exception ex)
+        {
+            return $"WSPR encode: {ex.Message}";
+        }
+    }
+
+    static double ParseWatts(string? text)
+    {
+        if (double.TryParse(text, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double w) && w > 0)
+            return w;
+        if (double.TryParse(text, out w) && w > 0) return w;
+        return 5;
+    }
+
+    /// <summary>Parse "CALL GRID POWER" from FreeText / Band Activity.</summary>
+    static bool TryParseWsprMessage(string message, out string call, out string grid4, out int dbm)
+    {
+        call = "";
+        grid4 = "";
+        dbm = 0;
+        var parts = (message ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return false;
+        if (!int.TryParse(parts[^1], out dbm)) return false;
+        grid4 = parts[^2].Trim().ToUpperInvariant();
+        if (grid4.Length != 4) return false;
+        call = string.Join(" ", parts[..^2]).Trim().ToUpperInvariant();
+        return call.Length >= 3;
+    }
+
+    static bool LooksLikeWsprFreeText(string? text) =>
+        TryParseWsprMessage(text ?? "", out _, out _, out _);
 
     public double DialMhz
     {
@@ -382,11 +818,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (_settings.TxHz == value) return;
             _settings.TxHz = value;
+            if (IsWsprMode)
+                _settings.WsprAudioTxHz = ClampWsprAudioHz(value);
+            else
+                _settings.DigiTxHz = ClampDigiAudioHz(value);
+            _settings.AudioHzMemoryInitialized = true;
             Raise();
             if (_waterfall is not null) _waterfall.TxHz = value;
             InvalidateTxAudioCache();
             RebuildRxFilter();
             RefreshCurrentFreqText();
+            ScheduleSettingsPersist();
         }
     }
 
@@ -395,11 +837,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _settings.RxHz;
         set
         {
+            if (_settings.RxHz == value) return;
             _settings.RxHz = value;
+            if (IsWsprMode)
+                _settings.WsprAudioRxHz = ClampWsprAudioHz(value);
+            else
+                _settings.DigiRxHz = ClampDigiAudioHz(value);
+            _settings.AudioHzMemoryInitialized = true;
             Raise();
             if (_waterfall is not null) _waterfall.RxHz = value;
             RebuildRxFilter();
             RefreshCurrentFreqText();
+            ScheduleSettingsPersist();
         }
     }
 
@@ -488,6 +937,123 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.CallAlertSoundPath = value ?? ""; Raise(); }
     }
 
+    public bool WantedAlertEnabled
+    {
+        get => _settings.WantedAlertEnabled;
+        set { _settings.WantedAlertEnabled = value; Raise(); }
+    }
+
+    public bool WantedAlertCqOnly
+    {
+        get => _settings.WantedAlertCqOnly;
+        set { _settings.WantedAlertCqOnly = value; Raise(); }
+    }
+
+    public string WantedAlertSoundPath
+    {
+        get => _settings.WantedAlertSoundPath;
+        set { _settings.WantedAlertSoundPath = value ?? ""; Raise(); }
+    }
+
+    public string NewWantedValue
+    {
+        get => _newWantedValue;
+        set
+        {
+            if (!SetField(ref _newWantedValue, value ?? "")) return;
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public int SelectedWantedKindIndex
+    {
+        get => _selectedWantedKindIndex;
+        set => SetField(ref _selectedWantedKindIndex, Math.Clamp(value, 0, 2));
+    }
+
+    public string WantedFilePath => _wanted.FilePath;
+
+    void ReloadWantedList()
+    {
+        WantedItems.Clear();
+        foreach (var e in _wanted.Snapshot())
+            WantedItems.Add(e);
+    }
+
+    void AddWantedItem()
+    {
+        var kind = SelectedWantedKindIndex switch
+        {
+            1 => WantedKind.State,
+            2 => WantedKind.Country,
+            _ => WantedKind.Call
+        };
+        var entry = WantedEntry.TryCreate(kind, NewWantedValue);
+        if (entry is null)
+        {
+            Status = "Enter a call, state (e.g. IL), or country name";
+            return;
+        }
+
+        if (!_wanted.Add(entry))
+        {
+            Status = $"Already on Wanted list → {entry.Display}";
+            return;
+        }
+
+        WantedItems.Add(entry);
+        NewWantedValue = "";
+        Status = $"Wanted + {entry.Display}";
+        RefreshWantedFlagsInActivity();
+    }
+
+    void RemoveWantedItem(WantedEntry? entry)
+    {
+        if (entry is null) return;
+        if (!_wanted.Remove(entry)) return;
+        var match = WantedItems.FirstOrDefault(e =>
+            e.Kind == entry.Kind &&
+            string.Equals(e.Value, entry.Value, StringComparison.OrdinalIgnoreCase));
+        if (match is not null)
+            WantedItems.Remove(match);
+        Status = $"Wanted − {entry.Display}";
+        RefreshWantedFlagsInActivity();
+    }
+
+    void RefreshWantedFlagsInActivity()
+    {
+        foreach (var hit in Activity)
+            hit.IsWanted = _wanted.Match(hit) is not null;
+        foreach (var hit in RxActivity)
+            hit.IsWanted = _wanted.Match(hit) is not null;
+    }
+
+    bool TryWantedAlert(DecodeHit hit, out string reason)
+    {
+        reason = "";
+        if (!WantedAlertEnabled) return false;
+        if (WantedAlertCqOnly && !hit.IsCq) return false;
+        string? match = _wanted.Match(hit);
+        if (match is null) return false;
+
+        // Dedup: same transmitter + match reason within 3 minutes.
+        string key = $"{hit.DxCall}|{match}";
+        var now = DateTime.UtcNow;
+        if (_wantedAlertedUtc.TryGetValue(key, out var last) && (now - last).TotalMinutes < 3)
+            return false;
+        _wantedAlertedUtc[key] = now;
+
+        // Prune old keys
+        if (_wantedAlertedUtc.Count > 200)
+        {
+            foreach (var stale in _wantedAlertedUtc.Where(kv => (now - kv.Value).TotalMinutes > 10).Select(kv => kv.Key).ToList())
+                _wantedAlertedUtc.Remove(stale);
+        }
+
+        reason = match;
+        return true;
+    }
+
     public bool TxEven
     {
         get => _settings.TxEven;
@@ -525,8 +1091,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set
         {
             _settings.TxPower = value;
+            if (IsWsprMode)
+            {
+                _settings.WsprPowerDbm = WsprEncoder.WattsToDbm(ParseWatts(value));
+                Raise(nameof(SelectedWsprPowerLabel));
+            }
             Raise();
             _ = PushRfPowerAsync();
+            if (IsWsprMode) RefreshWsprFreeText();
         }
     }
 
@@ -858,12 +1430,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // Reply in the opposite 15s period from the decode we just heard.
         TxEven = !IsEvenPeriod(hit.Utc);
 
-        // User explicitly chose a station — leave CQ hold.
+        // User explicitly chose a station — leave CQ hold / any leftover WSPR beacon.
         _holdCq = false;
+        if (IsWsprMode)
+        {
+            Status = "WSPR-2 is beacon-only — switch to FT8/FT4 to call a station.";
+            return;
+        }
+
+        // Stale WSPR FreeText after a mode switch must not block FT8 arming.
+        bool staleWsprText = LooksLikeWsprFreeText(FreeText);
 
         // Arm next TX from the decode content (CQ→Tx1, grid→Tx2, report→Tx3, R-report→Tx4).
         // Never blindly StartWorking mid-QSO — that rewound to Tx1 after their signal report.
-        if (string.IsNullOrWhiteSpace(FreeText) || AutoSequence)
+        // Double-click always loads the station macro unless FreeText is a deliberate FT8 edit
+        // with AutoSequence off (and not leftover WSPR).
+        if (string.IsNullOrWhiteSpace(FreeText) || AutoSequence || staleWsprText)
         {
             bool sameMidQso =
                 !string.IsNullOrWhiteSpace(_seq.DxCall) &&
@@ -921,12 +1503,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     bool TryStartTxNowIfOurSlot(double? minRemainingSec = null)
     {
         if (!EnableTx || IsTransmitting) return false;
-        if (string.IsNullOrWhiteSpace(FreeText) && !_holdCq &&
+        if (IsWsprMode)
+        {
+            // WSPR needs nearly a full 110.6 s tone — only start near the slot edge.
+            minRemainingSec ??= WsprEncoder.SignalDurationSec + WsprEncoder.LeadInSec - 2.0;
+            if (!ShouldTransmitWsprThisSlot() && !_wsprTxNextArmed)
+                return false;
+        }
+        else if (string.IsNullOrWhiteSpace(FreeText) && !_holdCq &&
             _seq.Phase is QsoPhase.Idle or QsoPhase.Complete)
             return false;
 
         _timing.Tick(DateTime.UtcNow);
-        if (TxEven != _timing.IsEvenSlot)
+        if (!IsWsprMode && TxEven != _timing.IsEvenSlot)
             return false;
 
         double remaining = _timing.SlotSeconds - _timing.SecondsIntoSlot;
@@ -935,32 +1524,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return false;
 
         string msg;
-        if (_holdCq)
-        {
+        if (IsWsprMode)
+            msg = BuildWsprMessage();
+        else if (_holdCq)
             msg = BuildCqMessage();
-        }
         else if (AutoSequence)
-        {
             msg = _seq.NextTxMessage(_settings) ?? FreeText;
-        }
         else
-        {
             msg = FreeText;
-        }
 
         if (string.IsNullOrWhiteSpace(msg)) return false;
 
         FreeText = msg;
         PrimeTxAudioCache(FreeText);
+        if (IsWsprMode && _wsprTxNextArmed)
+            WsprTxNextArmed = false;
         string period = TxEven ? "even" : "odd";
-        Status = $"TX now ({period}, {remaining:0.0}s left) → {DxCall}: {FreeText}";
+        Status = IsWsprMode
+            ? $"WSPR TX now ({remaining:0.0}s left) → {FreeText}"
+            : $"TX now ({period}, {remaining:0.0}s left) → {DxCall}: {FreeText}";
         _ = TransmitMessageAsync(FreeText);
         return true;
     }
 
-    static bool IsEvenPeriod(DateTime utc)
+    bool IsEvenPeriod(DateTime utc)
     {
-        long slot = (long)(utc.ToUniversalTime() - DateTime.UnixEpoch).TotalSeconds / 15;
+        int slotSec = Math.Max(1, _timing.SlotSeconds);
+        long slot = (long)(utc.ToUniversalTime() - DateTime.UnixEpoch).TotalSeconds / slotSec;
         return (slot & 1) == 0;
     }
 
@@ -1289,7 +1879,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string HamlibMode
     {
         get => _settings.HamlibMode;
-        set { _settings.HamlibMode = value; Raise(); }
+        set
+        {
+            string m = (value ?? "").Trim();
+            // Prefer digi labels; plain USB/LSB break Yaesu/Icom USB-audio digi paths.
+            if (!LooksDigiMode(m))
+                m = "DATA-U";
+            _settings.HamlibMode = m;
+            Raise();
+        }
+    }
+
+    static bool LooksDigiMode(string? m)
+    {
+        if (string.IsNullOrWhiteSpace(m)) return false;
+        return m.Contains("DATA", StringComparison.OrdinalIgnoreCase) ||
+               m.Contains("PKT", StringComparison.OrdinalIgnoreCase) ||
+               m.Contains("DIG", StringComparison.OrdinalIgnoreCase) ||
+               m.Contains("USB-D", StringComparison.OrdinalIgnoreCase) ||
+               m.Contains("USB_D", StringComparison.OrdinalIgnoreCase);
     }
 
     public bool HamlibAutoStart
@@ -1429,9 +2037,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _waterfall.TxHz = TxHz;
         _waterfall.RxHz = RxHz;
         _waterfall.LockTxToRx = LockTxToRx;
-        _waterfall.ChannelWidthHz = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 90 : 50;
         _waterfall.SampleRate = AudioCaptureService.SampleRate;
         _waterfall.FftSize = _spectrum.FftSize;
+        ApplyModeToWaterfall();
         ApplyWaterfallPalette();
         _waterfall.FrequencyPicked += OnWaterfallFrequencyPicked;
     }
@@ -1620,6 +2228,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_cat.IsConnected)
         {
             await PushRfPowerAsync();
+            // Always land in DATA-U / digi — band hops and many radios default to plain USB.
+            string digi = await EnsureDigiModeAsync();
             // Read VFO a couple of times — HRD/rigctld can return empty on the first poll.
             long? hz = null;
             for (int i = 0; i < 3 && hz is null; i++)
@@ -1632,7 +2242,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (hz is long freq && freq > 0)
                 ApplyDialFromRadio(freq);
             else
-                Status = "CAT connected — could not read frequency; set band manually or Refresh";
+                Status = $"CAT connected ({digi}) — could not read frequency; set band manually or Refresh";
         }
     }
 
@@ -1675,7 +2285,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             await _cat.SetDialMhzAsync(DialMhz);
-            Status = $"Set rig {DialMhz:0.000000} MHz";
+            // Frequency changes often flip Yaesu/Icom out of DATA-U — put digi back.
+            string digi = await EnsureDigiModeAsync();
+            Status = $"Set rig {DialMhz:0.000000} MHz ({digi})";
         }
         catch (Exception ex)
         {
@@ -1687,7 +2299,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            await _cat.SetModeAsync(HamlibMode);
+            string digi = await EnsureDigiModeAsync();
+            Status = $"CAT mode {digi}";
             await _cat.RefreshAsync();
         }
         catch (Exception ex)
@@ -1756,8 +2369,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(snap.Mode))
         {
             RigModeText = snap.PassbandHz is > 0 ? $"{snap.Mode} {snap.PassbandHz}Hz" : snap.Mode;
-            if (HamlibModes.Contains(snap.Mode))
-                HamlibMode = snap.Mode;
+            if (LooksDigiMode(snap.Mode))
+            {
+                // Remember the digi label the radio actually accepted (PKTUSB vs DATA-U, etc.).
+                if (HamlibModes.Contains(snap.Mode) || !string.IsNullOrWhiteSpace(snap.Mode))
+                    HamlibMode = snap.Mode;
+            }
+            else if (_cat.IsConnected && !_forcingDigiMode)
+            {
+                // Band/VFO changes commonly drop to plain USB — force digi back.
+                _ = RestoreDigiModeAsync(snap.Mode);
+            }
         }
         if (snap.Ptt is bool ptt)
         {
@@ -1845,11 +2467,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         var p = _bandPresetItems[_selectedBandPresetIndex];
         // Set fields without recursive RebuildBandPresetList from Mode setter mid-apply.
+        string previousMode = _settings.Mode;
+        if (!string.Equals(previousMode, p.Mode, StringComparison.OrdinalIgnoreCase))
+            SwapAudioHzForModeSwitch(previousMode, p.Mode);
         _settings.Mode = p.Mode;
         _timing.SetMode(p.Mode);
-        if (_waterfall is not null)
-            _waterfall.ChannelWidthHz = p.Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 90 : 50;
+        ApplyModeToWaterfall();
+        if (IsWsprMode)
+            EnterWsprMode();
+        else if (IsWsprModeName(previousMode))
+            LeaveWsprMode();
         Raise(nameof(Mode));
+        Raise(nameof(IsWsprMode));
+        Raise(nameof(IsFtDigiMode));
+        Raise(nameof(TxHzToolTip));
+        CommandManager.InvalidateRequerySuggested();
         Band = p.Band;
         DialMhz = p.DialMhz;
         if (_cat.IsConnected)
@@ -1863,10 +2495,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             await _cat.SetDialMhzAsync(p.DialMhz);
-            if (!string.IsNullOrWhiteSpace(HamlibMode))
-                await _cat.SetModeAsync(HamlibMode);
+            // Always re-assert digi after dial change — never leave the radio in plain USB.
+            string digi = await EnsureDigiModeAsync();
             await _cat.RefreshAsync();
-            Status = $"Band {p.Band} {p.Mode} → radio {p.DialMhz:0.0000} MHz";
+            Status = $"Band {p.Band} {p.Mode} → radio {p.DialMhz:0.0000} MHz ({digi})";
         }
         catch (Exception ex)
         {
@@ -1874,8 +2506,36 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    async Task RestoreDigiModeAsync(string? fromMode)
+    {
+        if ((DateTime.UtcNow - _lastDigiModeForceUtc).TotalSeconds < 2.5)
+            return;
+        _lastDigiModeForceUtc = DateTime.UtcNow;
+        _forcingDigiMode = true;
+        try
+        {
+            string digi = await EnsureDigiModeAsync();
+            if (!string.Equals(fromMode, digi, StringComparison.OrdinalIgnoreCase))
+                Status = $"Radio was {fromMode} — restored {digi}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not restore DATA-U: {ex.Message}";
+        }
+        finally
+        {
+            _forcingDigiMode = false;
+        }
+    }
+
     void StartCq()
     {
+        if (IsWsprMode)
+        {
+            ArmWsprTxNext();
+            return;
+        }
+
         ArmCqHold();
         // Arm for the next matching period — do not key mid-slot (late TX is hard to complete QSOs with).
         Status = $"CQ hold ON ({(TxEven ? "even" : "odd")}) → {FreeText}";
@@ -1914,10 +2574,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (_timing.JustRolled)
         {
-            bool ourSlot = EnableTx && TxEven == _timing.IsEvenSlot && !IsTransmitting;
+            bool ourSlot;
+            if (IsWsprMode)
+            {
+                // Every 120 s slot is a candidate; Tx% / Tx next decide (not FT8 even/odd).
+                ourSlot = ShouldTransmitWsprThisSlot();
+            }
+            else
+            {
+                ourSlot = EnableTx && TxEven == _timing.IsEvenSlot && !IsTransmitting;
+            }
+
             // Auto-seq: decode first — a reply in the prior period must advance the macro
             // before we key, otherwise we re-send CQ/Tx1 and wait another cycle.
-            if (ourSlot && AutoSequence)
+            // WSPR is beacon-only — no decode-before-TX deferral.
+            if (ourSlot && AutoSequence && !IsWsprMode)
                 _deferTxUntilDecode = true;
 
             TriggerSlotDecode();
@@ -1927,13 +2598,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             if (ourSlot)
                 TransmitArmedMessage();
+
+            // After deciding this slot, roll the random schedule for the following one.
+            if (IsWsprMode)
+                ScheduleNextWsprSlot(announce: false);
         }
     }
 
-    /// <summary>TX whatever is currently armed (CQ hold / seq / FreeText).</summary>
+    /// <summary>TX whatever is currently armed (CQ hold / seq / FreeText / WSPR beacon).</summary>
     void TransmitArmedMessage()
     {
         if (!EnableTx || IsTransmitting) return;
+
+        if (IsWsprMode)
+        {
+            if (!ShouldTransmitWsprThisSlot()) return;
+            string beacon = BuildWsprMessage();
+            FreeText = beacon;
+            PhaseLabel = "WsprBeacon";
+            // Consume one-shot Tx next before keying.
+            if (_wsprTxNextArmed)
+                WsprTxNextArmed = false;
+            _ = TransmitMessageAsync(beacon);
+            return;
+        }
+
         if (TxEven != _timing.IsEvenSlot) return;
 
         if (_holdCq)
@@ -2188,16 +2877,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         void body()
         {
             bool callAlert = false;
+            bool wantedAlert = false;
+            string? wantedReason = null;
             bool autoReplied = false;
             foreach (var hit in hits)
             {
                 MarkWorkingFlags(hit);
+                string? want = _wanted.Match(hit);
+                hit.IsWanted = want is not null;
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);
 
                 if (hit.IsToMe)
                     callAlert = true;
+
+                if (TryWantedAlert(hit, out string reason))
+                {
+                    wantedAlert = true;
+                    wantedReason = $"{hit.DxCall} ({reason})";
+                }
 
                 // Auto-seq returns the correct next macro when a transmitter answers.
                 // Double-click (EnableTxForStation) remains available as a manual override.
@@ -2209,7 +2908,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _external.ReportDecodes(hits, _settings);
             if (callAlert && CallAlertEnabled)
                 _callAlert.Play(CallAlertSoundPath);
-            if (!autoReplied && !_holdCq && !_deferTxUntilDecode)
+            // Wanted audio is independent of "call my callsign" — always play when armed.
+            if (wantedAlert && WantedAlertEnabled)
+            {
+                string wav = !string.IsNullOrWhiteSpace(WantedAlertSoundPath)
+                    ? WantedAlertSoundPath
+                    : CallAlertSoundPath;
+                _callAlert.Play(wav);
+            }
+            if (wantedAlert && !string.IsNullOrWhiteSpace(wantedReason))
+                Status = $"★ Wanted {wantedReason}";
+            else if (!autoReplied && !_holdCq && !_deferTxUntilDecode)
                 Status = $"Decoded {hits.Count} ({engineLabel}) @ {utc:HH:mm:ss} UTC";
 
             // Key this slot now with the (possibly advanced) macro — do not wait another cycle.
@@ -2459,6 +3168,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void MarkWorkingFlags(DecodeHit hit)
     {
+        hit.IsPreviouslyWorked = _workedCalls.Contains(hit.DxCall);
+
         string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
         work = (work ?? "").Trim();
         if (string.IsNullOrEmpty(work))
@@ -2476,7 +3187,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     void PushLocalTxDecode(string message)
     {
         var parsed = Ft8MessageBuilder.Parse(message);
-        string? dx = !string.IsNullOrWhiteSpace(DxCall) ? DxCall : parsed.DxCall;
+        // Flag / DxCall on Band Activity = transmitter. For our own TX that is MyCall —
+        // never the DX we're addressing (ViewModel.DxCall), which was painting the called
+        // station's flag on outbound rows.
+        string? txCall = !string.IsNullOrWhiteSpace(MyCall) ? MyCall.Trim().ToUpperInvariant() : parsed.DxCall;
+        string? txGrid = MyGrid;
+        if (!string.IsNullOrWhiteSpace(txGrid) && txGrid.Length > 4)
+            txGrid = txGrid[..4];
+        string? country = CallsignCountry.FromCall(txCall);
+        // Distance still toward the DX we're working (if any).
+        string? distGrid = string.IsNullOrWhiteSpace(DxGrid) ? parsed.DxGrid : DxGrid;
         var hit = new DecodeHit
         {
             Utc = DateTime.UtcNow,
@@ -2485,16 +3205,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SnrDb = 0,
             Dt = 0,
             Message = $"→ {message}",
-            DxCall = dx,
-            DxGrid = string.IsNullOrWhiteSpace(DxGrid) ? parsed.DxGrid : DxGrid,
-            Country = CallsignCountry.FromCall(dx),
-            State = UsState.Resolve(CallsignCountry.FromCall(dx), DxGrid, dx),
+            DxCall = txCall,
+            DxGrid = txGrid,
+            Country = country,
+            State = UsState.Resolve(country, txGrid, txCall),
             IsNew = false,
             IsCq = parsed.IsCq,
             IsToMe = false,
             IsWorking = true, // our TX — shown green in RX (calling CQ / a station)
-            DistanceMiles = Maidenhead.DistanceMiles(MyGrid, string.IsNullOrWhiteSpace(DxGrid) ? parsed.DxGrid : DxGrid)
-                is double mi ? Math.Round(mi) : null
+            IsPreviouslyWorked = _workedCalls.Contains(txCall),
+            DistanceMiles = Maidenhead.DistanceMiles(MyGrid, distGrid) is double mi ? Math.Round(mi) : null
         };
 
         Activity.Insert(0, hit);
@@ -2751,12 +3471,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
-            string? encoderExe = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
-                ? Ft8CodePaths.FindFt4Code()
-                : Ft8CodePaths.FindFt8Code();
-            _txAudioCache = Ft8ToneGenerator.Generate(
-                message.Trim(), TxHz, seconds, drive01: 1.0, mode: Mode, codeExeHint: encoderExe);
+            if (IsWsprMode)
+            {
+                if (!TryParseWsprMessage(message, out string call, out string grid, out int dbm))
+                {
+                    call = MyCall;
+                    string g = (MyGrid ?? "FN42").Trim().ToUpperInvariant();
+                    grid = g.Length > 4 ? g[..4] : g;
+                    dbm = WsprEncoder.SnapPower(_settings.WsprPowerDbm);
+                }
+                _txAudioCache = WsprToneGenerator.Generate(call, grid, dbm, TxHz, drive01: 1.0);
+            }
+            else
+            {
+                double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
+                string? encoderExe = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
+                    ? Ft8CodePaths.FindFt4Code()
+                    : Ft8CodePaths.FindFt8Code();
+                _txAudioCache = Ft8ToneGenerator.Generate(
+                    message.Trim(), TxHz, seconds, drive01: 1.0, mode: Mode, codeExeHint: encoderExe);
+            }
             _txAudioCacheKey = key;
         }
         catch
@@ -2794,7 +3528,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 ? (outIdx >= 0 && outIdx < OutputDevices.Count ? OutputDevices[outIdx] : null)
                 : _settings.OutputDeviceName;
 
-            await EnsureDigiModeForTxAsync();
+            await EnsureDigiModeAsync();
             float playGain = Math.Clamp(Math.Max(drive, 0.35f), 0, 1);
             _playback.PlayMono(
                 audio,
@@ -2858,26 +3592,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             PushLocalTxDecode(message);
 
             await PushRfPowerAsync();
-            double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
+            bool wspr = IsWsprMode;
+            double seconds = wspr
+                ? WsprEncoder.SignalDurationSec + WsprEncoder.LeadInSec
+                : Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
 
-            // Cap TX to the remainder of this FT8/FT4 period so audio/PTT never spill
+            // Cap TX to the remainder of this period so audio/PTT never spill
             // a full cycle into the next sequence.
             _timing.Tick(DateTime.UtcNow);
             int startSlot = _timing.SlotIndex;
             double remaining = Math.Max(0, _timing.SlotSeconds - _timing.SecondsIntoSlot - 0.05);
             double holdSec = Math.Min(seconds + 0.2, remaining);
-            if (holdSec < 1.0)
+            double minHold = wspr ? WsprEncoder.SignalDurationSec * 0.95 : 1.0;
+            if (holdSec < minHold)
             {
                 Status = "TX skipped — too late in this period (armed for next)";
                 AppendTxLog($"TX SKIP late into={_timing.SecondsIntoSlot:0.00}s remain={remaining:0.00}s");
                 return;
             }
 
-            // Real FT8/FT4 channel symbols via WSJT-X ft8code/ft4code — fake tones are not decodable.
             float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0, 1);
-            string? encoderExe = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
-                ? Ft8CodePaths.FindFt4Code()
-                : Ft8CodePaths.FindFt8Code();
+            string? encoderExe = wspr
+                ? null
+                : Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
+                    ? Ft8CodePaths.FindFt4Code()
+                    : Ft8CodePaths.FindFt8Code();
             string cacheKey = TxAudioCacheKey(message);
             float[] audio;
             try
@@ -2886,8 +3625,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     audio = _txAudioCache;
                 }
+                else if (wspr)
+                {
+                    if (!TryParseWsprMessage(message, out string call, out string grid, out int dbm))
+                    {
+                        call = MyCall;
+                        string g = (MyGrid ?? "FN42").Trim().ToUpperInvariant();
+                        grid = g.Length > 4 ? g[..4] : g;
+                        dbm = WsprEncoder.SnapPower(_settings.WsprPowerDbm);
+                        message = WsprEncoder.FormatMessage(call, grid, dbm);
+                    }
+                    audio = WsprToneGenerator.Generate(call, grid, dbm, TxHz, drive01: 1.0);
+                    _txAudioCache = audio;
+                    _txAudioCacheKey = cacheKey;
+                }
                 else
                 {
+                    // Real FT8/FT4 channel symbols via WSJT-X ft8code/ft4code.
                     audio = Ft8ToneGenerator.Generate(
                         message, TxHz, seconds, drive01: 1.0, mode: Mode, codeExeHint: encoderExe);
                     _txAudioCache = audio;
@@ -2904,7 +3658,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             string? outNamePref = string.IsNullOrWhiteSpace(_settings.OutputDeviceName)
                 ? (outIdx >= 0 && outIdx < OutputDevices.Count ? OutputDevices[outIdx] : null)
                 : _settings.OutputDeviceName;
-            string encName = string.IsNullOrEmpty(encoderExe) ? "?" : Path.GetFileName(encoderExe);
+            string encName = wspr
+                ? "wspr-enc"
+                : string.IsNullOrEmpty(encoderExe) ? "?" : Path.GetFileName(encoderExe);
             float peak = 0;
             for (int i = 0; i < audio.Length; i += 32)
             {
@@ -2915,7 +3671,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ApplyDriveLevel(_settings.TxDrivePercent);
 
             // USB digi radios (FT-710 etc.) need DATA-U / PKTUSB — plain USB often keys RF with no USB audio.
-            string digiMode = await EnsureDigiModeForTxAsync();
+            string digiMode = await EnsureDigiModeAsync();
 
             // Start USB audio first so the codec stream is running, then key PTT.
             float playGain = Math.Clamp(Math.Max(drive, 0.35f), 0, 1);
@@ -2941,9 +3697,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     _settings.OutputDeviceIndex = match;
             }
 
-            string txWarn = TxHz is < 500 or > 2500
-                ? $"  ⚠ Tx {TxHz} Hz is outside typical FT8 activity (use ~1000–2000)"
-                : "";
+            string txWarn = wspr
+                ? (TxHz is < 1400 or > 1600
+                    ? $"  ⚠ Tx {TxHz} Hz is outside typical WSPR audio (use ~1400–1600)"
+                    : "")
+                : (TxHz is < 500 or > 2500
+                    ? $"  ⚠ Tx {TxHz} Hz is outside typical FT8 activity (use ~1000–2000)"
+                    : "");
             Status =
                 $"TX: {message} @ {TxHz} Hz → {_playback.ActiveDeviceName}  " +
                 $"mode {digiMode}  drive {_settings.TxDrivePercent}% peak {peak * playGain:0.00}  [{encName}]{txWarn}";
@@ -2953,7 +3713,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             await HoldTxUntilAsync(holdSec, startSlot);
             // Only the first farewell opens the log — skip if DX already sent 73/RR73.
-            if (IsSeventyThreeMessage(message) &&
+            if (!wspr &&
+                IsSeventyThreeMessage(message) &&
                 !string.IsNullOrWhiteSpace(DxCall) &&
                 !_qsoLogPrompted)
                 promptLogAfterTx = true;
@@ -3002,22 +3763,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Plain USB/LSB often ignores the USB sound-card audio path. Prefer DATA-U / PKTUSB / DIGU for FT8.
+    /// Keep the radio in DATA-U / PKTUSB / DIGU. Plain USB/LSB breaks USB-audio digi on many rigs
+    /// and is what band/VFO changes often fall back to.
     /// </summary>
-    async Task<string> EnsureDigiModeForTxAsync()
+    async Task<string> EnsureDigiModeAsync()
     {
-        if (!_cat.IsConnected) return HamlibMode;
+        if (!_cat.IsConnected)
+            return LooksDigiMode(HamlibMode) ? HamlibMode : "DATA-U";
 
-        static bool LooksDigi(string m) =>
-            m.Contains("DATA", StringComparison.OrdinalIgnoreCase) ||
-            m.Contains("PKT", StringComparison.OrdinalIgnoreCase) ||
-            m.Contains("DIG", StringComparison.OrdinalIgnoreCase) ||
-            m.Contains("USB-D", StringComparison.OrdinalIgnoreCase) ||
-            m.Contains("USB_D", StringComparison.OrdinalIgnoreCase);
-
-        // Prefer an already-configured digi mode, then common Yaesu/Icom digi labels — never settle on plain USB first.
+        _lastDigiModeForceUtc = DateTime.UtcNow;
         var digiFirst = new List<string>();
-        if (!string.IsNullOrWhiteSpace(HamlibMode) && LooksDigi(HamlibMode))
+        if (LooksDigiMode(HamlibMode))
             digiFirst.Add(HamlibMode.Trim());
         digiFirst.AddRange(["DATA-U", "PKTUSB", "DIGU", "USB-D", "DATA-USB", "USB-DATA"]);
 
@@ -3035,18 +3791,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
         }
 
-        // Last resort: whatever is configured (may be plain USB).
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(HamlibMode))
-                await _cat.SetModeAsync(HamlibMode);
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return HamlibMode;
+        return LooksDigiMode(HamlibMode) ? HamlibMode : "DATA-U";
     }
 
     static void AppendTxLog(string line)
@@ -3223,9 +3968,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         _logStore.Add(entry);
         Log.Insert(0, entry);
+        _workedCalls.Add(entry.DxCall);
+        RefreshWorkedFlagsInActivity();
         await _external.PublishAsync(entry, _settings);
         FinishQsoSession();
         Status = $"Logged {entry.DxCall}";
+    }
+
+    void RefreshWorkedFlagsInActivity()
+    {
+        foreach (var hit in Activity)
+            hit.IsPreviouslyWorked = _workedCalls.Contains(hit.DxCall);
+        foreach (var hit in RxActivity)
+            hit.IsPreviouslyWorked = _workedCalls.Contains(hit.DxCall);
     }
 
     void FinishQsoSession()
@@ -3337,12 +4092,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _clock.Stop();
         _spectrumTimer.Stop();
         _heartbeat.Stop();
+        _settingsPersistTimer.Stop();
+        RememberAudioHzForMode(IsWsprMode);
+        // Always flush markers / mode memory — Closing may be skipped on force-kill rebuilds.
+        try { SaveSettingsNow(); } catch { /* ignore */ }
         _jtdx.Dispose();
         _capture.Dispose();
         _playback.Dispose();
         _callAlert.Dispose();
         _external.Dispose();
         _ = _cat.DisposeAsync().AsTask();
-        // Window Closing already flushed placement/layout — avoid a second write race.
     }
 }

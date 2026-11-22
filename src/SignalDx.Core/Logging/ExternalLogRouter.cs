@@ -7,6 +7,7 @@ public sealed class ExternalLogRouter : IDisposable
     readonly ClubLogClient _clubLog = new();
     readonly QrzLogClient _qrz = new();
     readonly PskReporterClient _psk = new();
+    readonly WsprNetClient _wsprNet = new();
     WsjtxUdpLogger? _udp;
 
     public event Action<string>? StatusChanged;
@@ -14,6 +15,7 @@ public sealed class ExternalLogRouter : IDisposable
     public ExternalLogRouter()
     {
         _psk.StatusChanged += s => StatusChanged?.Invoke(s);
+        _wsprNet.StatusChanged += s => StatusChanged?.Invoke(s);
     }
 
     public void Configure(StationSettings settings)
@@ -21,6 +23,7 @@ public sealed class ExternalLogRouter : IDisposable
         _udp?.Dispose();
         _udp = null;
         _psk.Configure(settings);
+        _wsprNet.Configure(settings);
         if (!settings.UdpLogEnabled) return;
         try
         {
@@ -34,8 +37,11 @@ public sealed class ExternalLogRouter : IDisposable
         }
     }
 
-    public void ReportDecodes(IEnumerable<DecodeHit> hits, StationSettings settings) =>
+    public void ReportDecodes(IEnumerable<DecodeHit> hits, StationSettings settings)
+    {
         _psk.Enqueue(hits, settings);
+        _wsprNet.Enqueue(hits, settings);
+    }
 
     public void Heartbeat(StationSettings settings)
     {
@@ -112,5 +118,6 @@ public sealed class ExternalLogRouter : IDisposable
     {
         _udp?.Dispose();
         _ = _psk.DisposeAsync().AsTask();
+        _ = _wsprNet.DisposeAsync().AsTask();
     }
 }

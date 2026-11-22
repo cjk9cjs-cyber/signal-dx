@@ -44,6 +44,20 @@ public static class BandPlan
         new("6m", "FT4", 50.318),
         new("2m", "FT4", 144.170),
         new("70cm", "FT4", 432.170),
+
+        // WSPR-2 — conventional USB dial (audio ~1500 Hz in passband)
+        new("160m", "WSPR2", 1.8366),
+        new("80m", "WSPR2", 3.5686),
+        new("60m", "WSPR2", 5.2872),
+        new("40m", "WSPR2", 7.0386),
+        new("30m", "WSPR2", 10.1387),
+        new("20m", "WSPR2", 14.0956),
+        new("17m", "WSPR2", 18.1046),
+        new("15m", "WSPR2", 21.0946),
+        new("12m", "WSPR2", 24.9246),
+        new("10m", "WSPR2", 28.1246),
+        new("6m", "WSPR2", 50.293),
+        new("2m", "WSPR2", 144.489),
     ];
 
     public static BandPreset? Find(string band, string mode) =>

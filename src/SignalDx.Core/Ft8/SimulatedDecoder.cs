@@ -21,6 +21,56 @@ public sealed class SimulatedDecoder
 
     public IReadOnlyList<DecodeHit> GenerateSlot(DateTime utc, StationSettings station)
     {
+        bool wspr = station.Mode.Equals("WSPR2", StringComparison.OrdinalIgnoreCase) ||
+                    station.Mode.Equals("WSPR", StringComparison.OrdinalIgnoreCase);
+        return wspr ? GenerateWsprSlot(utc, station) : GenerateFt8Slot(utc, station);
+    }
+
+    IReadOnlyList<DecodeHit> GenerateWsprSlot(DateTime utc, StationSettings station)
+    {
+        int count = _rng.Next(2, 7);
+        int[] powers = [10, 13, 17, 20, 23, 27, 30, 33, 37];
+        var hits = new List<DecodeHit>(count);
+
+        for (int i = 0; i < count; i++)
+        {
+            string call = Calls[_rng.Next(Calls.Length)];
+            string grid = Grids[_rng.Next(Grids.Length)][..4];
+            int power = powers[_rng.Next(powers.Length)];
+            // WSPR passband is narrow (~200 Hz around 1500).
+            int hz = 1400 + _rng.Next(0, 200);
+            double snr = Math.Round(_rng.NextDouble() * 20 - 28, 1);
+            double dt = Math.Round(_rng.NextDouble() * 0.8 - 0.2, 2);
+            string message = $"{call} {grid} {power}";
+            bool isNew = _heard.Add(call);
+            string? country = CallsignCountry.FromCall(call);
+            string? state = UsState.Resolve(country, grid, call);
+            double? miles = Maidenhead.DistanceMiles(station.MyGrid, grid);
+
+            hits.Add(new DecodeHit
+            {
+                Utc = utc,
+                Mode = "WSPR2",
+                Hz = hz,
+                SnrDb = snr,
+                Dt = dt,
+                Message = message,
+                DxCall = call,
+                DxGrid = grid,
+                Country = country,
+                State = state,
+                IsNew = isNew,
+                IsCq = true, // beacon-style
+                IsToMe = false,
+                DistanceMiles = miles is double m ? Math.Round(m) : null
+            });
+        }
+
+        return hits.OrderBy(h => h.Hz).ToList();
+    }
+
+    IReadOnlyList<DecodeHit> GenerateFt8Slot(DateTime utc, StationSettings station)
+    {
         int count = _rng.Next(4, 12);
         var hits = new List<DecodeHit>(count);
 
@@ -39,8 +89,6 @@ public sealed class SimulatedDecoder
 
             bool isNew = _heard.Add(call);
             var parsed = Ft8MessageBuilder.Parse(message);
-            // Prefer explicit grid from CQ/message; fall back to the simulated station grid.
-            // DxCall is the calling/transmitting station (not the called party).
             string? dxCall = parsed.DxCall ?? call;
             string? dxGrid = parsed.DxGrid ?? (cq ? grid : null);
             double? miles = Maidenhead.DistanceMiles(station.MyGrid, dxGrid);

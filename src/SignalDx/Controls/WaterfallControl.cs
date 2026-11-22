@@ -21,9 +21,13 @@ public sealed class WaterfallControl : FrameworkElement
     const int MaxBitmapWidth = 2800;
     const int MinBitmapHeight = 320;
     const int MaxBitmapHeight = 640;
-    /// <summary>dB above noise before a pixel leaves the solid background.</summary>
+    /// <summary>dB above noise before a pixel leaves the solid background (FT8/FT4).</summary>
     const float SignalGateDb = 6.5f;
-    const int SlotSeconds = 15;
+    /// <summary>Lower gate so weak WSPR traces (−28 dB class) still paint.</summary>
+    const float WsprSignalGateDb = 3.0f;
+    /// <summary>Horizontal time-mark period (15 FT8, 7 FT4, 120 WSPR-2).</summary>
+    int _slotSeconds = 15;
+    bool _wsprDisplay;
 
     WriteableBitmap _bitmap;
     int _width;
@@ -128,6 +132,36 @@ public sealed class WaterfallControl : FrameworkElement
     public double MaxHz { get; set; } = 3000;
     public double SnapHz { get; set; } = 6.25;
 
+    public int SlotSeconds
+    {
+        get => _slotSeconds;
+        set => _slotSeconds = Math.Max(1, value);
+    }
+
+    /// <summary>WSPR-2 display: interpolated narrow band, soft traces, 2-min marks.</summary>
+    public bool WsprDisplayMode
+    {
+        get => _wsprDisplay;
+        set
+        {
+            if (_wsprDisplay == value) return;
+            _wsprDisplay = value;
+            ToolTip = value
+                ? "WSPR-2 passband (1400–1600 Hz)\nLeft-click: set Tx/Rx\nRight-click / Shift: Tx only"
+                : "Left-click: set Rx (+ Tx if locked)\nRight-click / Shift+click: set Tx only\nDrag to slide the channel";
+        }
+    }
+
+    float ActiveGateDb => _wsprDisplay ? WsprSignalGateDb : SignalGateDb;
+
+    /// <summary>Clear history and AGC when switching modes / bands.</summary>
+    public void ResetDisplay()
+    {
+        _noiseFloor = -90;
+        _signalCeil = -25;
+        FillBackground(resetTimeMarks: true);
+    }
+
     public void PushSpectrum(IReadOnlyList<float> magnitudesDb)
     {
         if (!Dispatcher.CheckAccess())
@@ -151,7 +185,9 @@ public sealed class WaterfallControl : FrameworkElement
         if (slotBoundary)
         {
             var aligned = AlignToSlot(now);
-            PaintTimeLine(_height - 1, IsMinuteBoundary(aligned));
+            // WSPR slots are already 2 minutes — every mark is a major boundary.
+            bool major = _wsprDisplay || IsMinuteBoundary(aligned);
+            PaintTimeLine(_height - 1, major);
             _timeMarks.Add((0, aligned));
         }
 
@@ -159,13 +195,13 @@ public sealed class WaterfallControl : FrameworkElement
         InvalidateVisual();
     }
 
-    static long SlotIndex(DateTime local) =>
-        local.Ticks / (TimeSpan.TicksPerSecond * SlotSeconds);
+    long SlotIndex(DateTime local) =>
+        local.Ticks / (TimeSpan.TicksPerSecond * (long)_slotSeconds);
 
-    static DateTime AlignToSlot(DateTime local)
+    DateTime AlignToSlot(DateTime local)
     {
         long sec = local.Ticks / TimeSpan.TicksPerSecond;
-        long alignedSec = sec - (sec % SlotSeconds);
+        long alignedSec = sec - (sec % _slotSeconds);
         return new DateTime(alignedSec * TimeSpan.TicksPerSecond, local.Kind);
     }
 
@@ -443,8 +479,9 @@ public sealed class WaterfallControl : FrameworkElement
             if (bitmapY < 0 || bitmapY >= _height) continue;
 
             double y = (bitmapY + 0.5) / _height * wfH;
-            bool minute = IsMinuteBoundary(stamp);
-            string text = stamp.ToString("HH:mm:ss");
+            bool minute = _wsprDisplay || IsMinuteBoundary(stamp);
+            // WSPR 2-minute marks: HH:mm is enough; FT8 keeps seconds.
+            string text = _wsprDisplay ? stamp.ToString("HH:mm") : stamp.ToString("HH:mm:ss");
             var ft = new FormattedText(
                 text,
                 System.Globalization.CultureInfo.InvariantCulture,
@@ -476,19 +513,26 @@ public sealed class WaterfallControl : FrameworkElement
         var majorPen = new Pen(new SolidColorBrush(Color.FromRgb(0xC8, 0xD6, 0xE8)), 1.2);
         double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
-        int min = (int)Math.Ceiling(MinHz / 100.0) * 100;
-        int max = (int)Math.Floor(MaxHz / 100.0) * 100;
-        for (int hz = min; hz <= max; hz += 100)
+        // WSPR ~200 Hz span → 20 Hz minors / 100 Hz majors; FT8 keeps 100 / 500.
+        double spanHz = Math.Max(1, MaxHz - MinHz);
+        int minorStep = _wsprDisplay || spanHz <= 400 ? 20 : 100;
+        int majorStep = _wsprDisplay || spanHz <= 400 ? 100 : 500;
+        int min = (int)Math.Ceiling(MinHz / minorStep) * minorStep;
+        int max = (int)Math.Floor(MaxHz / minorStep) * minorStep;
+        for (int hz = min; hz <= max; hz += minorStep)
         {
             double x = HzToX(hz);
-            bool major = hz % 500 == 0;
+            bool major = hz % majorStep == 0;
             double tickTop = major ? y0 + 2 : y0 + 10;
             dc.DrawLine(major ? majorPen : minorPen, new Point(x, tickTop), new Point(x, y0 + h - 2));
 
             if (!major) continue;
 
+            string label = _wsprDisplay
+                ? $"{hz}"
+                : hz >= 1000 ? $"{hz / 1000.0:0.###}k" : $"{hz}";
             var ft = new FormattedText(
-                hz >= 1000 ? $"{hz / 1000.0:0.###}k" : $"{hz}",
+                label,
                 System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
                 new Typeface("Cascadia Mono"),
@@ -576,9 +620,10 @@ public sealed class WaterfallControl : FrameworkElement
         for (int x = 0; x < _width; x++)
         {
             double hz = MinHz + (MaxHz - MinHz) * x / Math.Max(1, _width - 1);
-            double bin = hz * FftSize / SampleRate;
-            int b0 = Math.Clamp((int)Math.Round(bin), 0, bins - 1);
-            float db = magnitudesDb[b0];
+            double bin = hz * FftSize / (double)SampleRate;
+            float db = _wsprDisplay
+                ? SampleBinInterpolated(magnitudesDb, bin)
+                : magnitudesDb[Math.Clamp((int)Math.Round(bin), 0, bins - 1)];
             _column[x] = db;
             if (db > peak) peak = db;
             if ((x & 3) == 0)
@@ -588,23 +633,60 @@ public sealed class WaterfallControl : FrameworkElement
             }
         }
 
+        // Narrow WSPR band: light 3-tap smooth so FFT bins don't paint as fat blocks.
+        if (_wsprDisplay && _width >= 3)
+        {
+            float prev = _column[0];
+            for (int x = 1; x < _width - 1; x++)
+            {
+                float cur = _column[x];
+                float next = _column[x + 1];
+                float sm = (prev + cur * 2f + next) * 0.25f;
+                prev = cur;
+                _column[x] = sm;
+                if (sm > peak) peak = sm;
+            }
+        }
+
         // Robust-ish floor: average of subsampled bins, then bias a bit below so noise stays blank.
+        float gate = ActiveGateDb;
         float avg = noiseN > 0 ? noiseAcc / noiseN : peak - 25f;
-        float targetFloor = avg - 1.5f;
+        float targetFloor = avg - (_wsprDisplay ? 2.5f : 1.5f);
         _noiseFloor = _noiseFloor * 0.92f + targetFloor * 0.08f;
         _signalCeil = Math.Max(peak, _signalCeil * 0.97f + peak * 0.03f);
-        if (_signalCeil < _noiseFloor + SignalGateDb + 12f)
-            _signalCeil = _noiseFloor + SignalGateDb + 12f;
-        if (_signalCeil - _noiseFloor > 45f)
-            _noiseFloor = _signalCeil - 45f;
+        if (_signalCeil < _noiseFloor + gate + 12f)
+            _signalCeil = _noiseFloor + gate + 12f;
+        float maxDyn = _wsprDisplay ? 35f : 45f;
+        if (_signalCeil - _noiseFloor > maxDyn)
+            _noiseFloor = _signalCeil - maxDyn;
+    }
+
+    static float SampleBinInterpolated(IReadOnlyList<float> magnitudesDb, double bin)
+    {
+        int bins = magnitudesDb.Count;
+        if (bin <= 0) return magnitudesDb[0];
+        if (bin >= bins - 1) return magnitudesDb[bins - 1];
+        int i0 = (int)bin;
+        float t = (float)(bin - i0);
+        return magnitudesDb[i0] * (1f - t) + magnitudesDb[i0 + 1] * t;
     }
 
     /// <summary>
-    /// Gate noise to empty; keep local peaks as sharp pixel columns (classic FT8 waterfall look).
+    /// Gate noise to empty. FT8 keeps sharp pixel columns; WSPR paints soft continuous intensity.
     /// </summary>
     void BuildDisplayColumn()
     {
-        float gate = _noiseFloor + SignalGateDb;
+        float gate = _noiseFloor + ActiveGateDb;
+        if (_wsprDisplay)
+        {
+            for (int x = 0; x < _width; x++)
+            {
+                float v = _column[x];
+                _display[x] = v >= gate ? v : float.NegativeInfinity;
+            }
+            return;
+        }
+
         for (int x = 0; x < _width; x++)
         {
             float v = _column[x];
@@ -638,22 +720,27 @@ public sealed class WaterfallControl : FrameworkElement
 
     void WriteColumn(int y, float[] column)
     {
-        float range = Math.Max(14f, _signalCeil - (_noiseFloor + SignalGateDb));
+        float gate = ActiveGateDb;
+        float range = Math.Max(14f, _signalCeil - (_noiseFloor + gate));
         var bg = WaterfallPalette.Background(PaletteKind);
+        double gamma = _wsprDisplay ? 0.85 : 0.72;
         for (int x = 0; x < _width; x++)
         {
             Color c;
             float v = column[x];
-            if (float.IsNegativeInfinity(v) || v < _noiseFloor + SignalGateDb)
+            if (float.IsNegativeInfinity(v) || v < _noiseFloor + gate)
             {
                 c = bg;
             }
             else
             {
-                float linear = Math.Clamp((v - (_noiseFloor + SignalGateDb)) / range, 0f, 1f);
-                // Slightly hard contrast so traces stay “pixel” bright on solid ground.
-                float n = (float)Math.Pow(linear, 0.72);
-                c = WaterfallPalette.Map(PaletteKind, Math.Clamp(0.18f + 0.82f * n, 0f, 1f));
+                float linear = Math.Clamp((v - (_noiseFloor + gate)) / range, 0f, 1f);
+                float n = (float)Math.Pow(linear, gamma);
+                // WSPR: gentler floor so soft traces don't jump to neon.
+                float mapped = _wsprDisplay
+                    ? Math.Clamp(0.10f + 0.90f * n, 0f, 1f)
+                    : Math.Clamp(0.18f + 0.82f * n, 0f, 1f);
+                c = WaterfallPalette.Map(PaletteKind, mapped);
             }
 
             int i = (y * _width + x) * 4;

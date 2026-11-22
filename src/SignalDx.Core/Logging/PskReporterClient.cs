@@ -15,7 +15,7 @@ public sealed class PskReporterClient : IAsyncDisposable
 {
     const string Host = "report.pskreporter.info";
     const int Port = 4739;
-    const string SoftwareId = "SignalDX 1.0";
+    const string SoftwareId = "SignalDX";
     static readonly TimeSpan SendInterval = TimeSpan.FromSeconds(120);
     static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(300);
 
@@ -90,35 +90,77 @@ public sealed class PskReporterClient : IAsyncDisposable
         {
             foreach (var hit in hits)
             {
+                string mode = NormalizeMode(
+                    string.IsNullOrWhiteSpace(hit.Mode) ? settings.Mode : hit.Mode);
+                bool wspr = mode == "WSPR";
+
                 string? call = hit.DxCall;
-                if (string.IsNullOrWhiteSpace(call))
+                if (wspr)
+                {
+                    // Prefer explicit DxCall; else parse "CALL GRID DBM" (not FT8 QSO layout).
+                    if (string.IsNullOrWhiteSpace(call) || LooksLikeGrid(call))
+                        call = TryParseWsprCall(hit.Message);
+                }
+                else if (string.IsNullOrWhiteSpace(call))
                 {
                     var parsed = Ft8.Ft8MessageBuilder.Parse(hit.Message);
                     call = parsed.DxCall;
                 }
+
                 if (string.IsNullOrWhiteSpace(call)) continue;
                 call = call.Trim().ToUpperInvariant();
                 if (call.Equals(my, StringComparison.OrdinalIgnoreCase)) continue;
                 if (call is "CQ" or "QRZ" or "DE" or "DX") continue;
+                if (LooksLikeGrid(call)) continue;
 
                 // Dedup same call on same ~kHz for a few minutes
                 long rfHz = (long)Math.Round(settings.DialMhz * 1_000_000d) + hit.Hz;
-                string key = $"{call}:{rfHz / 1000}";
+                string key = $"{call}:{mode}:{rfHz / 1000}";
                 if (_recent.TryGetValue(key, out long seen) && now - seen < CacheTtl.TotalSeconds)
                     continue;
                 _recent[key] = now;
 
-                string mode = string.IsNullOrWhiteSpace(hit.Mode) ? settings.Mode : hit.Mode;
-                if (string.IsNullOrWhiteSpace(mode)) mode = "FT8";
-
                 int snr = (int)Math.Clamp(Math.Round(hit.SnrDb), sbyte.MinValue, sbyte.MaxValue);
-                _pending.Add(new Spot(call, (uint)Math.Clamp(rfHz, 0, uint.MaxValue), (sbyte)snr, mode.ToUpperInvariant(), (uint)now));
+                _pending.Add(new Spot(
+                    call,
+                    (uint)Math.Clamp(rfHz, 0, uint.MaxValue),
+                    (sbyte)snr,
+                    mode,
+                    (uint)now));
                 added++;
             }
         }
 
         if (added > 0)
             PruneRecent(now);
+    }
+
+    /// <summary>ADIF MODE/SUBMODE values PSK Reporter accepts.</summary>
+    static string NormalizeMode(string? mode)
+    {
+        string m = (mode ?? "").Trim().ToUpperInvariant();
+        if (m is "WSPR2" or "WSPR-2" or "WSPR") return "WSPR";
+        if (string.IsNullOrWhiteSpace(m)) return "FT8";
+        return m;
+    }
+
+    static string? TryParseWsprCall(string? message)
+    {
+        var parts = (message ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return null;
+        if (!int.TryParse(parts[^1], out _)) return null;
+        if (!LooksLikeGrid(parts[^2])) return null;
+        string call = string.Join(" ", parts[..^2]).Trim().ToUpperInvariant();
+        return call.Length >= 3 ? call : null;
+    }
+
+    static bool LooksLikeGrid(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        s = s.Trim();
+        if (s.Length is not (4 or 6)) return false;
+        return char.IsLetter(s[0]) && char.IsLetter(s[1])
+               && char.IsDigit(s[2]) && char.IsDigit(s[3]);
     }
 
     void PruneRecent(long now)
