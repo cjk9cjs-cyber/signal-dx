@@ -73,6 +73,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     DecodeHit? _selectedRxDecode;
     WaterfallControl? _waterfall;
     DateTime? _qsoStartUtc;
+    /// <summary>True after the log dialog was offered for the current QSO (either side's first 73).</summary>
+    bool _qsoLogPrompted;
     /// <summary>After Clear on RX Frequency, do not refill from Band Activity history.</summary>
     bool _rxHistorySuppressed;
     /// <summary>When true, every TX period sends CQ until a real grid reply arrives (or user picks a station).</summary>
@@ -296,8 +298,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string AboutProductName => AppInfo.ProductName;
     public string AboutCreator => AppInfo.CreatorName;
     public string AboutCreatorCall => AppInfo.CreatorCall;
+    public string AboutCreatorEmail => AppInfo.CreatorEmail;
     public string AboutVersion => AppInfo.Version;
+    public string AboutVersionDate => AppInfo.VersionDateDisplay;
     public string AboutDateCreated => AppInfo.DateCreatedDisplay;
+    public string AboutTagline => AppInfo.Tagline;
+    public string AboutAcknowledgments => AppInfo.Acknowledgments;
 
     public string MyCall
     {
@@ -793,6 +799,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             TxHz = value.Hz;
         Report = FormatSnr(value.SnrDb);
         _qsoStartUtc = DateTime.UtcNow;
+        _qsoLogPrompted = false;
         // Single-click only loads call/Hz/SNR into the UI.
         // Never StartWorking here — that resets mid-QSO (e.g. after a CQ reply) back to the grid call.
         // Double-click / EnableTxForStation arms a new station; CQ answer advances the sequencer itself.
@@ -896,8 +903,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         PrimeTxAudioCache(FreeText);
         RebuildRxFilter();
 
-        // If we are already in the correct odd/even period to call them, key now
-        // (don't wait for the next slot roll). Too late in the slot → arm for next period.
+        // Correct odd/even period → key now even mid-sequence (unkeys at period end).
         if (TryStartTxNowIfOurSlot())
             return;
 
@@ -906,10 +912,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Start transmitting immediately when the current FT8/FT4 period matches TxEven
-    /// and we still have enough time left in the slot for a full cycle.
+    /// Start transmitting immediately when the current FT8/FT4 period matches TxEven.
+    /// Mid-sequence starts are allowed; PTT/audio stop at the period boundary.
     /// </summary>
-    bool TryStartTxNowIfOurSlot(double? maxLateSec = null)
+    /// <param name="minRemainingSec">
+    /// Skip only when less than this many seconds remain in the period (default 1s).
+    /// </param>
+    bool TryStartTxNowIfOurSlot(double? minRemainingSec = null)
     {
         if (!EnableTx || IsTransmitting) return false;
         if (string.IsNullOrWhiteSpace(FreeText) && !_holdCq &&
@@ -920,10 +929,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (TxEven != _timing.IsEvenSlot)
             return false;
 
-        // FT8 ~12.6s / FT4 ~6s — starting too late yields incomplete cycles.
-        // Post-decode path uses a higher limit because decode consumes the start of the slot.
-        double maxLate = maxLateSec ?? (Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 1.2 : 2.5);
-        if (_timing.SecondsIntoSlot > maxLate)
+        double remaining = _timing.SlotSeconds - _timing.SecondsIntoSlot;
+        double minRemain = minRemainingSec ?? 1.0;
+        if (remaining < minRemain)
             return false;
 
         string msg;
@@ -945,7 +953,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         FreeText = msg;
         PrimeTxAudioCache(FreeText);
         string period = TxEven ? "even" : "odd";
-        Status = $"TX now ({period}) → {DxCall}: {FreeText}";
+        Status = $"TX now ({period}, {remaining:0.0}s left) → {DxCall}: {FreeText}";
         _ = TransmitMessageAsync(FreeText);
         return true;
     }
@@ -1883,6 +1891,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SelectedRxDecode = null;
         _holdCq = true;
         _cqSessionUtc = DateTime.UtcNow;
+        _qsoLogPrompted = false;
         _deferTxUntilDecode = false;
         _seq.StartCq();
         PhaseLabel = _seq.Phase.ToString();
@@ -1967,8 +1976,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _timing.Tick(DateTime.UtcNow);
         if (TxEven != _timing.IsEvenSlot) return;
 
-        // Decode typically finishes 1–4s into our period — still start if we can get most of the cycle out.
-        if (TryStartTxNowIfOurSlot(maxLateSec: Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 2.0 : 5.0))
+        // Decode may finish mid-period — key now if this is still our sequence.
+        if (TryStartTxNowIfOurSlot())
             return;
 
         string period = TxEven ? "even" : "odd";
@@ -2260,24 +2269,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return true;
         }
 
-        // --- Their 73 / RR73: Tx4 (RR73) reply, or end QSO if we already sent RR73 ---
+        // --- Their 73 / RR73: first farewell from either side opens the log window ---
         if (IsDecodeFromWorkingStation(hit) &&
             (qsoToken is Ft8QsoToken.SeventyThree or Ft8QsoToken.Rr73))
         {
             var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             string their = parts.Length >= 2 ? parts[1] : DxCall;
 
-            // Already queued/sent RR73 or plain 73 — their farewell ends the call.
+            // Already queued/sent RR73 or plain 73 — reciprocal farewell ends the call.
+            // Do not reopen the log window (first 73 already did).
             if (_seq.Phase is QsoPhase.Sent73 or QsoPhase.SendingSeventyThree)
             {
                 if (!_seq.TryAdvanceFromDecode(hit.Message, _settings))
                     _seq.MarkComplete();
                 ApplySeqToUi(hit, $"QSO complete with {_seq.DxCall}");
-                PromptLogQso("QSO complete");
                 return true;
             }
 
-            // They sent plain 73 (or RR73 while we were still on Rxx/report) → reply Tx4 RR73.
+            // They called 73/RR73 first while we were still on Tx1–Tx3 → log once, then Tx4 RR73.
             if (qsoToken is Ft8QsoToken.SeventyThree ||
                 (qsoToken is Ft8QsoToken.Rr73 &&
                  (_seq.Phase is QsoPhase.SentReport or QsoPhase.SentRogerReport or QsoPhase.CallingDx)))
@@ -2290,15 +2299,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     string.IsNullOrWhiteSpace(_seq.DxCall) ? their : null,
                     DxGrid, Report);
                 ApplySeqToUi(hit, $"{_seq.DxCall} sent 73 → Tx4 {_seq.NextTxMessage(_settings)}");
+                PromptLogQso($"{_seq.DxCall} sent 73 — review QSO");
                 return true;
             }
 
-            // Their RR73 while not mid-farewell TX → done.
+            // Their RR73 while not mid-farewell TX → done (first farewell → one log prompt).
             if (qsoToken is Ft8QsoToken.Rr73)
             {
                 _seq.MarkComplete();
                 ApplySeqToUi(hit, $"QSO complete with {_seq.DxCall}");
-                PromptLogQso("QSO complete");
+                PromptLogQso($"{_seq.DxCall} sent RR73 — review QSO");
                 return true;
             }
         }
@@ -2380,8 +2390,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         // Key immediately when their 73 advanced us to RR73 (Tx4) in our period —
         // do not wait for another full even/odd cycle.
-        TryStartTxNowIfOurSlot(
-            maxLateSec: Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 2.5 : 6.0);
+        TryStartTxNowIfOurSlot();
     }
 
     bool IsFreeTextCq() =>
@@ -2586,13 +2595,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 : macro.Template.Trim();
             SaveSettingsNow();
             ArmCqHold();
-            Status = $"CQ hold ON → {FreeText}";
-            _ = TransmitMessageAsync(FreeText);
+            // Never key a full cycle mid-period — that bleeds into the next sequence.
+            if (TryStartTxNowIfOurSlot())
+                return;
+            string period = TxEven ? "even" : "odd";
+            Status = $"CQ hold ON ({period}) → {FreeText}";
             return;
         }
 
+        _holdCq = false;
         FreeText = msg;
-        _ = TransmitMessageAsync(msg);
+        InvalidateTxAudioCache();
+        PrimeTxAudioCache(msg);
+        if (TryStartTxNowIfOurSlot())
+            return;
+
+        string waitPeriod = TxEven ? "even" : "odd";
+        Status = $"TX armed ({waitPeriod}) → {msg}";
     }
 
     void RefreshMacroPreviews()
@@ -2703,6 +2722,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         _holdCq = false;
+        _qsoLogPrompted = false;
+        _qsoStartUtc = DateTime.UtcNow;
         _seq.StartWorking(call, grid, Report, forceRestart: true);
         PhaseLabel = _seq.Phase.ToString();
         FreeText = _seq.NextTxMessage(_settings) ??
@@ -2838,6 +2859,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             await PushRfPowerAsync();
             double seconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 6.0 : 12.64;
+
+            // Cap TX to the remainder of this FT8/FT4 period so audio/PTT never spill
+            // a full cycle into the next sequence.
+            _timing.Tick(DateTime.UtcNow);
+            int startSlot = _timing.SlotIndex;
+            double remaining = Math.Max(0, _timing.SlotSeconds - _timing.SecondsIntoSlot - 0.05);
+            double holdSec = Math.Min(seconds + 0.2, remaining);
+            if (holdSec < 1.0)
+            {
+                Status = "TX skipped — too late in this period (armed for next)";
+                AppendTxLog($"TX SKIP late into={_timing.SecondsIntoSlot:0.00}s remain={remaining:0.00}s");
+                return;
+            }
+
             // Real FT8/FT4 channel symbols via WSJT-X ft8code/ft4code — fake tones are not decodable.
             float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0, 1);
             string? encoderExe = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase)
@@ -2914,11 +2949,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 $"mode {digiMode}  drive {_settings.TxDrivePercent}% peak {peak * playGain:0.00}  [{encName}]{txWarn}";
             AppendTxLog(
                 $"TX ok msg='{message}' txHz={TxHz} out='{_playback.ActiveDeviceName}' mode={digiMode} " +
-                $"drive={_settings.TxDrivePercent}% peak={peak * playGain:0.00} enc={encName}");
+                $"drive={_settings.TxDrivePercent}% peak={peak * playGain:0.00} enc={encName} hold={holdSec:0.00}s");
 
-            int holdMs = (int)(seconds * 1000) + 400;
-            await Task.Delay(holdMs);
-            if (IsSeventyThreeMessage(message) && !string.IsNullOrWhiteSpace(DxCall))
+            await HoldTxUntilAsync(holdSec, startSlot);
+            // Only the first farewell opens the log — skip if DX already sent 73/RR73.
+            if (IsSeventyThreeMessage(message) &&
+                !string.IsNullOrWhiteSpace(DxCall) &&
+                !_qsoLogPrompted)
                 promptLogAfterTx = true;
         }
         catch (Exception ex)
@@ -2935,6 +2972,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ApplyDriveToAlcMeter();
             if (promptLogAfterTx)
                 PromptLogQso("73 sent — review QSO");
+        }
+    }
+
+    /// <summary>
+    /// Keep PTT/audio for at most <paramref name="holdSec"/>, but unkey immediately if Halt
+    /// is pressed or the FT8/FT4 period rolls into the next sequence.
+    /// </summary>
+    async Task HoldTxUntilAsync(double holdSec, int startSlotIndex)
+    {
+        var endUtc = DateTime.UtcNow.AddSeconds(Math.Max(0.05, holdSec));
+        while (IsTransmitting && DateTime.UtcNow < endUtc)
+        {
+            _timing.Tick(DateTime.UtcNow);
+            if (_timing.SlotIndex != startSlotIndex)
+                break;
+            double remainMs = (endUtc - DateTime.UtcNow).TotalMilliseconds;
+            if (remainMs <= 0) break;
+            await Task.Delay((int)Math.Min(40, remainMs));
         }
     }
 
@@ -3071,11 +3126,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    void PromptLogQso(string reason) => _ = PromptLogQsoAsync(reason);
+    void PromptLogQso(string reason, bool force = false)
+    {
+        if (string.IsNullOrWhiteSpace(DxCall)) return;
+        // Claim immediately so a reciprocal 73 cannot queue a second dialog.
+        if (!force)
+        {
+            if (_qsoLogPrompted || _logPromptOpen) return;
+            _qsoLogPrompted = true;
+        }
 
-    async Task PromptLogQsoAsync(string reason)
+        // Defer so an in-progress TX arm/key from the same decode can start before the modal.
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            _ = PromptLogQsoAsync(reason, force);
+            return;
+        }
+
+        dispatcher.BeginInvoke(
+            new Action(() => _ = PromptLogQsoAsync(reason, force)),
+            DispatcherPriority.ApplicationIdle);
+    }
+
+    async Task PromptLogQsoAsync(string reason, bool force = false)
     {
         if (_logPromptOpen || string.IsNullOrWhiteSpace(DxCall)) return;
+        if (!force && !_qsoLogPrompted)
+            _qsoLogPrompted = true;
         _logPromptOpen = true;
         try
         {
@@ -3129,8 +3207,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     async Task LogSelectedQsoAsync()
     {
         if (string.IsNullOrWhiteSpace(DxCall)) return;
-        // Manual Log QSO button — still show the review dialog.
-        PromptLogQso("Log QSO");
+        // Manual Log QSO button — always show the review dialog.
+        PromptLogQso("Log QSO", force: true);
         await Task.CompletedTask;
     }
 
@@ -3153,6 +3231,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     void FinishQsoSession()
     {
         _qsoStartUtc = null;
+        // Keep _qsoLogPrompted set so a reciprocal 73 does not reopen the dialog.
+        // Cleared only when a new QSO / CQ / DX selection starts.
         if (_seq.Phase is QsoPhase.Complete or QsoPhase.Sent73 or QsoPhase.SendingSeventyThree)
         {
             _seq.Reset();

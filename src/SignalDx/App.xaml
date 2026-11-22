@@ -300,13 +300,18 @@
       <Setter Property="AutoGenerateColumns" Value="False"/>
       <Setter Property="CanUserAddRows" Value="False"/>
       <Setter Property="CanUserDeleteRows" Value="False"/>
+      <Setter Property="CanUserResizeColumns" Value="True"/>
+      <Setter Property="CanUserReorderColumns" Value="True"/>
+      <Setter Property="CanUserSortColumns" Value="True"/>
       <Setter Property="IsReadOnly" Value="True"/>
       <Setter Property="SelectionMode" Value="Single"/>
       <Setter Property="RowHeight" Value="22"/>
       <Setter Property="FontSize" Value="12"/>
+      <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
     </Style>
 
-    <Style TargetType="DataGridColumnHeader">
+    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
       <Setter Property="Background" Value="#0E1626"/>
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
       <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>

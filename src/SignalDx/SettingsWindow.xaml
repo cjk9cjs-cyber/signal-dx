@@ -389,6 +389,8 @@
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Creator"
@@ -401,19 +403,35 @@
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AboutCreatorCall}"
                            FontWeight="SemiBold" Margin="0,0,0,10"/>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Version"
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Email"
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
-                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AboutVersion}"
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AboutCreatorEmail}"
                            FontWeight="SemiBold" Margin="0,0,0,10"/>
 
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Date created"
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Version"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AboutVersion}"
+                           FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Version date"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AboutVersionDate}"
+                           FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Date created"
                            Foreground="{StaticResource MutedBrush}"/>
-                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AboutDateCreated}"
+                <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding AboutDateCreated}"
                            FontWeight="SemiBold"/>
               </Grid>
 
               <TextBlock Margin="0,20,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                         Text="Windows FT8 / FT4 digi operator console."/>
+                         Text="{Binding AboutTagline}"/>
+
+              <TextBlock Margin="0,18,0,6" FontWeight="SemiBold"
+                         Foreground="{StaticResource AccentBrush}"
+                         Text="Acknowledgments"/>
+              <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                         Text="{Binding AboutAcknowledgments}"/>
             </StackPanel>
           </Border>
         </ScrollViewer>

@@ -15,6 +15,7 @@
                                TrueBrush="#33280A"
                                FalseBrush="Transparent"/>
     <conv:WorkingCallBrushConverter x:Key="WorkingCallBrushConverter"/>
+    <conv:FlagImageConverter x:Key="FlagImage"/>
     <Style x:Key="ActivityRowStyle" TargetType="DataGridRow">
       <Setter Property="Background" Value="{Binding IsCqStyleHighlight, Converter={StaticResource CqHighlight}}"/>
       <Setter Property="Foreground">
@@ -267,21 +268,48 @@
               <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearActivityCommand}"
                       HorizontalAlignment="Right" Padding="8,2"/>
             </DockPanel>
-            <DataGrid ItemsSource="{Binding Activity}" SelectedItem="{Binding SelectedActivityDecode}"
+            <DataGrid x:Name="BandActivityGrid"
+                      ItemsSource="{Binding Activity}" SelectedItem="{Binding SelectedActivityDecode}"
                       MouseDoubleClick="Activity_OnMouseDoubleClick"
-                      CellStyle="{StaticResource ActivityCellStyle}">
+                      CellStyle="{StaticResource ActivityCellStyle}"
+                      CanUserResizeColumns="True"
+                      CanUserReorderColumns="True">
               <DataGrid.RowStyle>
                 <StaticResource ResourceKey="ActivityRowStyle"/>
               </DataGrid.RowStyle>
               <DataGrid.Columns>
-                <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}" Width="70"/>
-                <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}" Width="44"/>
-                <DataGridTextColumn Header="DT" Binding="{Binding Dt, StringFormat=0.00}" Width="44"/>
-                <DataGridTextColumn Header="Hz" Binding="{Binding Hz}" Width="50"/>
-                <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}" Width="48"/>
-                <DataGridTextColumn Header="Country" Binding="{Binding CountryText}" Width="120"/>
-                <DataGridTextColumn Header="ST" Binding="{Binding StateText}" Width="44"/>
-                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+                <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}"
+                                   Width="70" MinWidth="40"/>
+                <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}"
+                                   Width="44" MinWidth="28"/>
+                <DataGridTextColumn Header="DT" Binding="{Binding Dt, StringFormat=0.00}"
+                                   Width="44" MinWidth="28"/>
+                <DataGridTextColumn Header="Hz" Binding="{Binding Hz}"
+                                   Width="50" MinWidth="32"/>
+                <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}"
+                                   Width="48" MinWidth="28"/>
+                <DataGridTemplateColumn Header="Flag" Width="64" MinWidth="48">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="2,0"
+                                  ToolTip="{Binding CountryText}">
+                        <Image Source="{Binding FlagIso, Converter={StaticResource FlagImage}}"
+                               Width="22" Height="15" Stretch="Uniform"
+                               SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock Text="{Binding FlagStateBadge}" Margin="4,0,0,0"
+                                   VerticalAlignment="Center" FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Country" Binding="{Binding CountryText}"
+                                   Width="120" MinWidth="48"/>
+                <DataGridTextColumn Header="ST" Binding="{Binding StateText}"
+                                   Width="44" MinWidth="28"/>
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}"
+                                   Width="280" MinWidth="80"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
@@ -303,17 +331,40 @@
                 <Button Content="Clear" Command="{Binding ClearRxActivityCommand}" Padding="8,2"/>
               </StackPanel>
             </DockPanel>
-            <DataGrid ItemsSource="{Binding RxActivity}" SelectedItem="{Binding SelectedRxDecode}"
+            <DataGrid x:Name="RxActivityGrid"
+                      ItemsSource="{Binding RxActivity}" SelectedItem="{Binding SelectedRxDecode}"
                       MouseDoubleClick="RxActivity_OnMouseDoubleClick"
-                      CellStyle="{StaticResource ActivityCellStyle}">
+                      CellStyle="{StaticResource ActivityCellStyle}"
+                      CanUserResizeColumns="True"
+                      CanUserReorderColumns="True">
               <DataGrid.RowStyle>
                 <StaticResource ResourceKey="ActivityRowStyle"/>
               </DataGrid.RowStyle>
               <DataGrid.Columns>
-                <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}" Width="70"/>
-                <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}" Width="44"/>
-                <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}" Width="48"/>
-                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+                <DataGridTextColumn Header="UTC" Binding="{Binding Utc, StringFormat=HH:mm:ss}"
+                                   Width="70" MinWidth="40"/>
+                <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}"
+                                   Width="44" MinWidth="28"/>
+                <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}"
+                                   Width="48" MinWidth="28"/>
+                <DataGridTemplateColumn Header="Flag" Width="64" MinWidth="48">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="2,0"
+                                  ToolTip="{Binding CountryText}">
+                        <Image Source="{Binding FlagIso, Converter={StaticResource FlagImage}}"
+                               Width="22" Height="15" Stretch="Uniform"
+                               SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock Text="{Binding FlagStateBadge}" Margin="4,0,0,0"
+                                   VerticalAlignment="Center" FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}"
+                                   Width="280" MinWidth="80"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>

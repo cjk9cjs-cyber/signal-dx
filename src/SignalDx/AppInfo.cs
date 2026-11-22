@@ -8,8 +8,14 @@ public static class AppInfo
     public const string ProductName = "Signal DX";
     public const string CreatorName = "CJ Schmit";
     public const string CreatorCall = "K9CJS";
+    public const string CreatorEmail = "cj.k9cjs@gmail.com";
     /// <summary>First commit / project start date (local).</summary>
     public static readonly DateOnly DateCreated = new(2026, 11, 14);
+    /// <summary>
+    /// Date this assembly version was cut. Update with every version bump
+    /// (see .cursor/rules/bump-version.mdc).
+    /// </summary>
+    public static readonly DateOnly VersionDate = new(2026, 11, 22);
 
     public static string Version
     {
@@ -31,4 +37,18 @@ public static class AppInfo
     public static string CreatorDisplay => $"{CreatorName}  ({CreatorCall})";
 
     public static string DateCreatedDisplay => DateCreated.ToString("MMMM d, yyyy");
+
+    public static string VersionDateDisplay => VersionDate.ToString("MMMM d, yyyy");
+
+    public const string Tagline = "Windows FT8 / FT4 digi operator console.";
+
+    /// <summary>Third-party components bundled or invoked at runtime.</summary>
+    public const string Acknowledgments =
+        "Signal DX uses parts of other open amateur-radio projects:\n\n" +
+        "• JTDX Contest — FT8/FT4 decoder (jtdxjt9) by Arvo Järve, ES1JA, and contributors.\n" +
+        "• WSJT-X — FT8/FT4 channel encoding (ft8code / ft4code) by Joe Taylor, K1JT, " +
+        "Steve Franke, K9AN, Bill Somerville, G4WJS, and the WSJT Development Group.\n\n" +
+        "Those projects remain the property of their respective authors and are subject " +
+        "to their own licenses. Signal DX is not affiliated with or endorsed by JTDX Contest or WSJT-X.";
 }
+

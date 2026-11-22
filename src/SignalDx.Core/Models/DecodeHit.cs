@@ -1,3 +1,5 @@
+using SignalDx.Geo;
+
 namespace SignalDx.Models;
 
 public sealed class DecodeHit
@@ -48,4 +50,16 @@ public sealed class DecodeHit
                 : Country ?? "";
 
     public string StateText => State ?? "";
+
+    /// <summary>ISO country code for the transmitter (drives the flag image).</summary>
+    public string? FlagIso => CountryFlag.ToIso(Country, State);
+
+    /// <summary>US/CA subdivision shown beside the national flag image.</summary>
+    public string FlagStateBadge =>
+        !string.IsNullOrWhiteSpace(State) && Country is "USA" or "United States" or "Canada"
+            ? State.Trim().ToUpperInvariant()
+            : "";
+
+    /// <summary>Legacy emoji text (Windows often shows letters — prefer FlagIso + image).</summary>
+    public string FlagText => CountryFlag.From(Country, State);
 }

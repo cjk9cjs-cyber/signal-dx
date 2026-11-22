@@ -23,6 +23,7 @@ public sealed class WaterfallControl : FrameworkElement
     const int MaxBitmapHeight = 640;
     /// <summary>dB above noise before a pixel leaves the solid background.</summary>
     const float SignalGateDb = 6.5f;
+    const int SlotSeconds = 15;
 
     WriteableBitmap _bitmap;
     int _width;
@@ -32,6 +33,8 @@ public sealed class WaterfallControl : FrameworkElement
     float[] _display;
     float _noiseFloor = -90;
     float _signalCeil = -25;
+    long? _lastSlotIndex;
+    readonly List<(int AgeRows, DateTime SlotLocal)> _timeMarks = new();
 
     bool _dragging;
     bool _dragSetsTx;
@@ -136,10 +139,73 @@ public sealed class WaterfallControl : FrameworkElement
         EnsureBitmapMatchesLayout();
         MapColumn(magnitudesDb);
         BuildDisplayColumn();
+
+        var now = DateTime.Now;
+        long slot = SlotIndex(now);
+        bool slotBoundary = _lastSlotIndex is long prev && prev != slot;
+        _lastSlotIndex = slot;
+        AgeTimeMarks();
+
         ScrollUp();
         WriteColumn(_height - 1, _display);
+        if (slotBoundary)
+        {
+            var aligned = AlignToSlot(now);
+            PaintTimeLine(_height - 1, IsMinuteBoundary(aligned));
+            _timeMarks.Add((0, aligned));
+        }
+
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
         InvalidateVisual();
+    }
+
+    static long SlotIndex(DateTime local) =>
+        local.Ticks / (TimeSpan.TicksPerSecond * SlotSeconds);
+
+    static DateTime AlignToSlot(DateTime local)
+    {
+        long sec = local.Ticks / TimeSpan.TicksPerSecond;
+        long alignedSec = sec - (sec % SlotSeconds);
+        return new DateTime(alignedSec * TimeSpan.TicksPerSecond, local.Kind);
+    }
+
+    static bool IsMinuteBoundary(DateTime slotLocal) => slotLocal.Second == 0;
+
+    void AgeTimeMarks()
+    {
+        for (int i = _timeMarks.Count - 1; i >= 0; i--)
+        {
+            var (age, stamp) = _timeMarks[i];
+            age++;
+            if (age >= _height)
+                _timeMarks.RemoveAt(i);
+            else
+                _timeMarks[i] = (age, stamp);
+        }
+    }
+
+    void ClearTimeMarks()
+    {
+        _timeMarks.Clear();
+        _lastSlotIndex = null;
+    }
+
+    void PaintTimeLine(int y, bool minute)
+    {
+        // Dim gray for :15/:30/:45; brighter for :00 so minute ticks stand out.
+        byte r = minute ? (byte)0xC8 : (byte)0x7A;
+        byte g = minute ? (byte)0xD4 : (byte)0x8C;
+        byte b = minute ? (byte)0xE8 : (byte)0xA0;
+        int row = y * _width * 4;
+        for (int x = 0; x < _width; x++)
+        {
+            int i = row + x * 4;
+            // Lighten toward the marker so strong traces still peek through a bit.
+            _pixels[i] = (byte)Math.Min(255, (_pixels[i] * 2 + b * 3) / 5);
+            _pixels[i + 1] = (byte)Math.Min(255, (_pixels[i + 1] * 2 + g * 3) / 5);
+            _pixels[i + 2] = (byte)Math.Min(255, (_pixels[i + 2] * 2 + r * 3) / 5);
+            _pixels[i + 3] = 255;
+        }
     }
 
     void EnsureBitmapMatchesLayout()
@@ -165,7 +231,7 @@ public sealed class WaterfallControl : FrameworkElement
         _pixels = new byte[_width * _height * 4];
         _column = new float[_width];
         _display = new float[_width];
-        FillBackground();
+        FillBackground(resetTimeMarks: false);
 
         // Preserve as much history as possible when resizing.
         int copyH = Math.Min(oldH, _height);
@@ -178,6 +244,12 @@ public sealed class WaterfallControl : FrameworkElement
                 oldPixels, (srcY * oldW) * 4,
                 _pixels, (dstY * _width) * 4,
                 copyW * 4);
+        }
+        // Drop marks that scrolled off the shorter bitmap.
+        for (int i = _timeMarks.Count - 1; i >= 0; i--)
+        {
+            if (_timeMarks[i].AgeRows >= _height)
+                _timeMarks.RemoveAt(i);
         }
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
     }
@@ -317,6 +389,7 @@ public sealed class WaterfallControl : FrameworkElement
         var bg = WaterfallPalette.Background(PaletteKind);
         dc.DrawRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, ActualWidth, wfH));
         dc.DrawImage(_bitmap, new Rect(0, 0, ActualWidth, wfH));
+        DrawTimeMarkLabels(dc, wfH);
 
         double span = MaxHz - MinHz;
         if (span <= 0 || ActualWidth <= 0) return;
@@ -350,6 +423,42 @@ public sealed class WaterfallControl : FrameworkElement
         }
 
         DrawFrequencyScaleBar(dc);
+    }
+
+    void DrawTimeMarkLabels(DrawingContext dc, double wfH)
+    {
+        if (_timeMarks.Count == 0 || _height <= 1 || ActualWidth <= 0) return;
+
+        double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var brush = new SolidColorBrush(Color.FromArgb(210, 0xD0, 0xDC, 0xEC));
+        brush.Freeze();
+        var minuteBrush = new SolidColorBrush(Color.FromArgb(230, 0xF0, 0xF4, 0xFA));
+        minuteBrush.Freeze();
+        var shadow = new SolidColorBrush(Color.FromArgb(160, 0x05, 0x08, 0x10));
+        shadow.Freeze();
+
+        foreach (var (ageRows, stamp) in _timeMarks)
+        {
+            int bitmapY = _height - 1 - ageRows;
+            if (bitmapY < 0 || bitmapY >= _height) continue;
+
+            double y = (bitmapY + 0.5) / _height * wfH;
+            bool minute = IsMinuteBoundary(stamp);
+            string text = stamp.ToString("HH:mm:ss");
+            var ft = new FormattedText(
+                text,
+                System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Cascadia Mono"),
+                minute ? 11 : 10,
+                minute ? minuteBrush : brush,
+                dip);
+
+            double ty = Math.Clamp(y - ft.Height - 1, 1, Math.Max(1, wfH - ft.Height - 1));
+            // Soft backdrop so labels stay readable over bright traces.
+            dc.DrawRectangle(shadow, null, new Rect(3, ty - 1, ft.Width + 6, ft.Height + 2));
+            dc.DrawText(ft, new Point(6, ty));
+        }
     }
 
     void DrawFrequencyScaleBar(DrawingContext dc)
@@ -555,7 +664,7 @@ public sealed class WaterfallControl : FrameworkElement
         }
     }
 
-    void FillBackground()
+    void FillBackground(bool resetTimeMarks = true)
     {
         var bg = WaterfallPalette.Background(PaletteKind);
         for (int i = 0; i < _pixels.Length; i += 4)
@@ -565,6 +674,8 @@ public sealed class WaterfallControl : FrameworkElement
             _pixels[i + 2] = bg.R;
             _pixels[i + 3] = 255;
         }
+        if (resetTimeMarks)
+            ClearTimeMarks();
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
         InvalidateVisual();
     }

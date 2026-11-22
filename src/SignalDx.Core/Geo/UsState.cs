@@ -97,53 +97,8 @@ public static class UsState
             if (country is not null) return null;
         }
 
-        string? fromGrid = FromGrid(grid);
-        if (fromGrid is not null) return fromGrid;
-
-        // Last resort: classic call-district hint (vanity calls make this approximate).
-        return FromCallDistrict(callsign);
-    }
-
-    static string? FromCallDistrict(string? callsign)
-    {
-        if (string.IsNullOrWhiteSpace(callsign)) return null;
-        string c = callsign.Trim().ToUpperInvariant();
-        int slash = c.IndexOf('/');
-        if (slash > 0)
-        {
-            string right = c[(slash + 1)..];
-            if (right is not ("P" or "M" or "QRP" or "MM"))
-                c = right.Length >= 3 ? right : c[..slash];
-            else
-                c = c[..slash];
-        }
-
-        // Skip non-US prefixes.
-        if (!(c.StartsWith('K') || c.StartsWith('N') || c.StartsWith('W') ||
-              (c.Length >= 2 && c[0] == 'A' && c[1] is >= 'A' and <= 'L')))
-            return null;
-
-        foreach (char ch in c)
-        {
-            if (ch is >= '0' and <= '9')
-            {
-                // Very rough district → region label (not a real state).
-                return ch switch
-                {
-                    '1' => "NE", // New England area
-                    '2' => "NY/NJ",
-                    '3' => "PA/MD",
-                    '4' => "SE",
-                    '5' => "SCEN",
-                    '6' => "CA",
-                    '7' => "NW",
-                    '8' => "GL",
-                    '9' => "MW",
-                    '0' => "GP",
-                    _ => null
-                };
-            }
-        }
-        return null;
+        // Only real 2-letter states from grid / territory — never call-district
+        // nicknames like "SCEN" / "NE" (those are not states).
+        return FromGrid(grid);
     }
 }
