@@ -9,8 +9,8 @@
     <AssemblyName>SignalDx</AssemblyName>
     <ApplicationTitle>Signal DX</ApplicationTitle>
     <ApplicationIcon>Assets\SignalDx.ico</ApplicationIcon>
-    <Version>2.13.3</Version>
-    <InformationalVersion>2.13.3</InformationalVersion>
+    <Version>2.14.1</Version>
+    <InformationalVersion>2.14.1</InformationalVersion>
     <Copyright>Copyright © 2026 CJ Schmit — K9CJS</Copyright>
     <Authors>CJ Schmit — K9CJS</Authors>
     <Company>K9CJS</Company>

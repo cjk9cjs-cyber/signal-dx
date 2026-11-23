@@ -49,7 +49,8 @@ Output: `artifacts\installer\SignalDx-<version>-Setup.exe`
 | Band presets | Common FT8/FT4 dial frequencies |
 | Auto sequence | CQ → report → R+report → RR73 workflow |
 | Band / Rx panes | Full activity plus Rx-frequency filter |
-| Wanted | Callsign, US/CA state, or country watch list; matches play an audio alert and highlight the row in red in Band Activity / RX Frequency |
+| Wanted | Callsign, US/CA state, or country watch list; matches play a distinct audio alert (or custom sound) and highlight the row in red in Band Activity / RX Frequency |
+| Updates | Automatic GitHub Releases check on startup (toggleable), toolbar update badge, and SHA-256 verified one-click Windows installer in **Settings → About** |
 | CAT | Hamlib TCP (`rigctld`), Kenwood serial, Yaesu serial; dial + PTT |
 | Local log | JSON under `%LocalAppData%\SignalDx\` |
 | ADIF | Append file + full export dialog |
@@ -63,7 +64,8 @@ Open **Settings** from the main window for:
 - **Hamlib / CAT** — model, device, `rigctld`, connect/PTT/mode/freq
 - **Logbooks** — WSJT-X UDP, ADIF path, Club Log, QRZ
 - **Decoder** — Simulate vs JTDX, path to `jtdxjt9.exe`, decode depth
-- **Wanted** — callsigns, US/CA states (e.g. `IL`), or countries (e.g. `Japan`). Wanted alert plays audio (CQ-only by default). Matching decode rows are highlighted in red in Band Activity and RX Frequency.
+- **Wanted** — callsigns, US/CA states (e.g. `IL`), or countries (e.g. `Japan`). Wanted alert plays a distinct chime (or custom audio file via Browse/Test/Reset; CQ-only by default). Matching decode rows are highlighted in red in Band Activity and RX Frequency.
+- **About** — version info, bundled how-to guide, and **Updates** (startup check toggle, **Check for updates**, release notes, and one-click verified installer download).
 
 The main console keeps a compact CAT status (freq / PTT) in the status bar. Uncheck **Simulate** (or set Engine to JTDX) after **Find** locates `jtdxjt9.exe`, then **Start Monitor** so each slot buffers audio for the decoder.
 

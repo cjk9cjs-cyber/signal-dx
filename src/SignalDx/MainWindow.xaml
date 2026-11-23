@@ -101,6 +101,14 @@
               <TextBlock Text="FREQ" FontSize="11" Foreground="{StaticResource MutedBrush}"
                          HorizontalAlignment="Right" Margin="0,-2,0,0"/>
             </StackPanel>
+            <Button Content="{Binding UpdateBadgeText}"
+                    Command="{Binding InstallUpdateCommand}"
+                    Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                    Background="#1F5E38"
+                    BorderBrush="#3FB950"
+                    Foreground="#FFFFFF"
+                    FontWeight="SemiBold"
+                    ToolTip="A newer version of Signal DX is available — click to download &amp; install"/>
             <Button Content="Settings" Command="{Binding OpenSettingsCommand}" Style="{StaticResource AccentButton}"/>
             <Button Content="How-to" Command="{Binding OpenHowtoCommand}"
                     ToolTip="Open the operator how-to guide (PDF / README)"/>

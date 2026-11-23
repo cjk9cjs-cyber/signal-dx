@@ -12,6 +12,9 @@
         Foreground="{StaticResource TextBrush}"
         FontFamily="Cascadia Mono, Consolas, Courier New"
         FontSize="13">
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+  </Window.Resources>
   <DockPanel Margin="12">
     <Border DockPanel.Dock="Bottom" Padding="0,10,0,0">
       <DockPanel>
@@ -508,6 +511,50 @@
 
               <TextBlock Margin="0,20,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                          Text="{Binding AboutTagline}"/>
+
+              <TextBlock Margin="0,18,0,8" FontWeight="SemiBold"
+                         Foreground="{StaticResource AccentBrush}"
+                         Text="Updates"/>
+              <CheckBox Content="Check for updates automatically on startup"
+                        IsChecked="{Binding CheckForUpdatesOnStartup}"
+                        Margin="0,0,0,8"/>
+              <TextBlock Text="{Binding UpdateStatusText}"
+                         Foreground="{StaticResource GoodBrush}"
+                         TextWrapping="Wrap"
+                         Margin="0,0,0,8"/>
+              <ProgressBar Height="8"
+                           Minimum="0" Maximum="100"
+                           Value="{Binding UpdateDownloadProgress, Mode=OneWay}"
+                           Visibility="{Binding IsDownloadingUpdate, Converter={StaticResource BoolToVis}}"
+                           Margin="0,0,0,8"/>
+              <WrapPanel Margin="0,0,0,4">
+                <Button Content="Check for updates"
+                        Command="{Binding CheckForUpdatesCommand}"
+                        Margin="0,0,8,8"
+                        ToolTip="Check GitHub Releases for a newer version of Signal DX"/>
+                <Button Content="Download &amp; install update"
+                        Command="{Binding InstallUpdateCommand}"
+                        Style="{StaticResource AccentButton}"
+                        Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                        Margin="0,0,8,8"
+                        ToolTip="Download the verified Setup installer, close Signal DX cleanly, and launch the upgrade"/>
+                <Button Content="Release notes"
+                        Command="{Binding OpenAvailableReleaseCommand}"
+                        Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                        Margin="0,0,0,8"
+                        ToolTip="Open this release on GitHub"/>
+              </WrapPanel>
+              <Border Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                      Background="{StaticResource BgBrush}"
+                      BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="1"
+                      Padding="10"
+                      Margin="0,4,0,8">
+                <TextBlock Text="{Binding UpdateReleaseNotes}"
+                           Foreground="{StaticResource TextBrush}"
+                           TextWrapping="Wrap"
+                           FontSize="12"/>
+              </Border>
 
               <TextBlock Margin="0,18,0,8" FontWeight="SemiBold"
                          Foreground="{StaticResource AccentBrush}"

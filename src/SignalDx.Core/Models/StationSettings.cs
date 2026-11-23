@@ -109,6 +109,9 @@ public sealed class StationSettings
     /// <summary>True after Wanted defaults were applied once (older settings.json lacked these fields → bool false).</summary>
     public bool WantedFeatureInitialized { get; set; }
 
+    /// <summary>When true, check GitHub Releases for a newer version shortly after startup.</summary>
+    public bool CheckForUpdatesOnStartup { get; set; } = true;
+
     /// <summary>When true, selecting a decode in Band/RX activity looks up the call on QRZ.</summary>
     public bool QrzLookupOnSelect { get; set; } = true;
     /// <summary>Fill empty Dx Grid from QRZ lookup when available.</summary>

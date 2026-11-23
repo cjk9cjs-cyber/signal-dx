@@ -43,6 +43,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly CatService _cat = new();
     readonly ExternalLogRouter _external = new();
     readonly QrzLookupClient _qrzLookup = new();
+    readonly UpdateCheckService _updater = new();
+    ReleaseUpdateInfo? _availableUpdate;
+    bool _updateAvailable;
+    bool _isCheckingForUpdates;
+    bool _isDownloadingUpdate;
+    double _updateDownloadProgress;
+    string _updateStatusText = $"Current version {AppInfo.Version}";
+    string _updateBadgeText = "";
+    string _updateReleaseNotes = "";
+    CancellationTokenSource? _updateCts;
     readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromMilliseconds(100) };
     readonly DispatcherTimer _spectrumTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
     readonly DispatcherTimer _heartbeat = new() { Interval = TimeSpan.FromSeconds(15) };
@@ -216,6 +226,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenReadmeCommand = new RelayCommand(OpenReadme);
         OpenHowtoPdfDownloadCommand = new RelayCommand(() => OpenExternalUrl(AppInfo.HowtoPdfUrl));
         OpenReleasesCommand = new RelayCommand(() => OpenExternalUrl(AppInfo.ReleasesUrl));
+        CheckForUpdatesCommand = new RelayCommand(
+            () => _ = CheckForUpdatesAsync(userInitiated: true),
+            () => !IsCheckingForUpdates && !IsDownloadingUpdate);
+        InstallUpdateCommand = new RelayCommand(
+            () => _ = InstallUpdateAsync(),
+            () => UpdateAvailable && !IsDownloadingUpdate);
+        OpenAvailableReleaseCommand = new RelayCommand(
+            () => OpenExternalUrl(_availableUpdate?.HtmlUrl ?? AppInfo.ReleasesUrl),
+            () => UpdateAvailable);
         TestCallAlertCommand = new RelayCommand(() => _callAlert.Play(CallAlertSoundPath, bypassCooldown: true));
         BrowseCallAlertSoundCommand = new RelayCommand(BrowseCallAlertSound);
         ClearCallAlertSoundCommand = new RelayCommand(() =>
@@ -293,6 +312,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RestoreAudioDeviceSelectionUi();
         if (_settings.CatBackend != CatBackend.None)
             _ = ConnectCatAsync();
+        if (CheckForUpdatesOnStartup)
+            _ = CheckForUpdatesAfterStartupDelayAsync();
         if (!_capture.IsRunning && !_cat.IsConnected)
             Status = "Set call/grid, connect CAT if used, start monitor, enable TX when ready.";
     }
@@ -377,6 +398,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand OpenReadmeCommand { get; }
     public ICommand OpenHowtoPdfDownloadCommand { get; }
     public ICommand OpenReleasesCommand { get; }
+    public ICommand CheckForUpdatesCommand { get; }
+    public ICommand InstallUpdateCommand { get; }
+    public ICommand OpenAvailableReleaseCommand { get; }
     public ICommand TestCallAlertCommand { get; }
     public ICommand BrowseCallAlertSoundCommand { get; }
     public ICommand ClearCallAlertSoundCommand { get; }
@@ -395,6 +419,72 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string AboutDateCreated => AppInfo.DateCreatedDisplay;
     public string AboutTagline => AppInfo.Tagline;
     public string AboutAcknowledgments => AppInfo.Acknowledgments;
+
+    public bool CheckForUpdatesOnStartup
+    {
+        get => _settings.CheckForUpdatesOnStartup;
+        set
+        {
+            if (_settings.CheckForUpdatesOnStartup == value) return;
+            _settings.CheckForUpdatesOnStartup = value;
+            Raise();
+            ScheduleSettingsPersist();
+        }
+    }
+
+    public bool UpdateAvailable
+    {
+        get => _updateAvailable;
+        private set
+        {
+            if (SetField(ref _updateAvailable, value))
+                CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool IsCheckingForUpdates
+    {
+        get => _isCheckingForUpdates;
+        private set
+        {
+            if (SetField(ref _isCheckingForUpdates, value))
+                CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool IsDownloadingUpdate
+    {
+        get => _isDownloadingUpdate;
+        private set
+        {
+            if (SetField(ref _isDownloadingUpdate, value))
+                CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public double UpdateDownloadProgress
+    {
+        get => _updateDownloadProgress;
+        private set => SetField(ref _updateDownloadProgress, value);
+    }
+
+    public string UpdateStatusText
+    {
+        get => _updateStatusText;
+        private set => SetField(ref _updateStatusText, value);
+    }
+
+    public string UpdateBadgeText
+    {
+        get => _updateBadgeText;
+        private set => SetField(ref _updateBadgeText, value);
+    }
+
+    public string UpdateReleaseNotes
+    {
+        get => _updateReleaseNotes;
+        private set => SetField(ref _updateReleaseNotes, value);
+    }
 
     public string MyCall
     {
@@ -4049,6 +4139,179 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    async Task CheckForUpdatesAfterStartupDelayAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4));
+            if (_disposed || !CheckForUpdatesOnStartup) return;
+            await CheckForUpdatesAsync(userInitiated: false);
+        }
+        catch
+        {
+            // Silent on startup — never interrupt operating.
+        }
+    }
+
+    async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (IsCheckingForUpdates || IsDownloadingUpdate) return;
+        IsCheckingForUpdates = true;
+        if (userInitiated)
+            UpdateStatusText = "Checking GitHub Releases…";
+
+        try
+        {
+            var result = await _updater.CheckLatestAsync(AppInfo.Version);
+            if (!result.Ok)
+            {
+                if (userInitiated)
+                {
+                    UpdateStatusText = result.Message;
+                    Status = result.Message;
+                }
+                return;
+            }
+
+            if (result.UpdateAvailable && result.Release is not null)
+            {
+                _availableUpdate = result.Release;
+                string ver = UpdateCheckService.FormatVersion(result.Release.Version);
+                UpdateBadgeText = $"Update {ver}";
+                UpdateStatusText = result.Message;
+                UpdateReleaseNotes = string.IsNullOrWhiteSpace(result.Release.ReleaseNotes)
+                    ? $"Signal DX {ver} is ready to install."
+                    : result.Release.ReleaseNotes.Trim();
+                UpdateAvailable = true;
+                Status = $"Update available: Signal DX {ver} (click Update or Settings → About)";
+            }
+            else
+            {
+                _availableUpdate = null;
+                UpdateAvailable = false;
+                UpdateBadgeText = "";
+                UpdateReleaseNotes = "";
+                UpdateStatusText = result.Message;
+                if (userInitiated)
+                    Status = result.Message;
+            }
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+        }
+    }
+
+    async Task InstallUpdateAsync()
+    {
+        if (_availableUpdate is null || IsDownloadingUpdate) return;
+
+        if (IsTransmitting || IsTuning)
+        {
+            Status = "Finish or Halt TX before installing an update.";
+            MessageBox.Show(
+                "Signal DX is currently transmitting. Wait for the transmission to finish or click Halt TX before updating.",
+                "Update Signal DX",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var release = _availableUpdate;
+        string ver = UpdateCheckService.FormatVersion(release.Version);
+
+        if (string.IsNullOrWhiteSpace(release.InstallerUrl))
+        {
+            OpenExternalUrl(string.IsNullOrWhiteSpace(release.HtmlUrl) ? AppInfo.ReleasesUrl : release.HtmlUrl);
+            Status = $"Opened Signal DX {ver} release page in browser.";
+            return;
+        }
+
+        string sizeNote = release.InstallerSizeBytes > 0
+            ? $" ({release.InstallerSizeBytes / (1024.0 * 1024.0):0.1} MB)"
+            : "";
+        string notesPreview = string.IsNullOrWhiteSpace(release.ReleaseNotes)
+            ? ""
+            : "\n\n" + (release.ReleaseNotes.Length > 500
+                ? release.ReleaseNotes[..500].TrimEnd() + "…"
+                : release.ReleaseNotes.Trim());
+
+        var confirm = MessageBox.Show(
+            $"Download and install Signal DX {ver}{sizeNote}?\n\n" +
+            $"Current version: {AppInfo.Version}\n" +
+            "Signal DX will verify the download, launch the Windows Setup installer (UAC prompt), " +
+            "and close cleanly with CAT PTT off so your settings and logs are preserved." +
+            notesPreview,
+            $"Update to Signal DX {ver}",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Information);
+
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        IsDownloadingUpdate = true;
+        UpdateDownloadProgress = 0;
+        UpdateStatusText = $"Downloading Signal DX {ver}…";
+        Status = UpdateStatusText;
+
+        _updateCts?.Cancel();
+        _updateCts?.Dispose();
+        _updateCts = new CancellationTokenSource();
+        var ct = _updateCts.Token;
+
+        try
+        {
+            var progress = new Progress<double>(p =>
+            {
+                double pct = Math.Clamp(p * 100.0, 0.0, 100.0);
+                UpdateDownloadProgress = pct;
+                UpdateStatusText = $"Downloading Signal DX {ver}… {pct:0}%";
+            });
+
+            string installerPath = await _updater.DownloadInstallerAsync(release, progress, ct);
+            UpdateStatusText = $"Verified {Path.GetFileName(installerPath)} — launching installer…";
+            Status = UpdateStatusText;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+            }
+            catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+            {
+                UpdateStatusText = "Update canceled at Windows UAC prompt.";
+                Status = UpdateStatusText;
+                return;
+            }
+
+            // Close cleanly so MainViewModel.Dispose() unkeys CAT PTT and flushes settings.
+            Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                Application.Current?.MainWindow?.Close();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatusText = "Update download canceled.";
+            Status = UpdateStatusText;
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText = $"Update failed: {ex.Message}";
+            Status = UpdateStatusText;
+            var fallback = MessageBox.Show(
+                $"Could not complete the automatic update:\n\n{ex.Message}\n\nOpen the GitHub Releases page in your browser instead?",
+                "Update Signal DX",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (fallback == MessageBoxResult.Yes)
+                OpenExternalUrl(string.IsNullOrWhiteSpace(release.HtmlUrl) ? AppInfo.ReleasesUrl : release.HtmlUrl);
+        }
+        finally
+        {
+            IsDownloadingUpdate = false;
+        }
+    }
+
     void PromptLogQso(string reason, bool force = false)
     {
         if (string.IsNullOrWhiteSpace(DxCall)) return;
@@ -4288,6 +4551,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try { _tuneCts?.Cancel(); } catch { /* ignore */ }
         try { _tuneCts?.Dispose(); } catch { /* ignore */ }
         _tuneCts = null;
+        try { _updateCts?.Cancel(); } catch { /* ignore */ }
+        try { _updateCts?.Dispose(); } catch { /* ignore */ }
+        _updateCts = null;
         _clock.Stop();
         _spectrumTimer.Stop();
         _heartbeat.Stop();

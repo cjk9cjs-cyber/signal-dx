@@ -172,9 +172,16 @@ Double-click remains a manual override to work a specific station.
 
 ### Alerts
 
-- **Call alert** — sound when someone calls *your* callsign.
-- **Wanted alert** — sound when a Wanted call / state / country appears (CQ-only option in Settings); matching rows highlight **red**.
-- Optional custom WAV paths in Settings → Display / Wanted.
+- **Call alert** — built-in 2-tone chime when someone calls *your* callsign.
+- **Wanted alert** — distinct built-in 3-note bell chime when a Wanted call / state / country appears (CQ-only option in Settings); matching rows highlight **red**.
+- Custom sound files (`.wav`, `.mp3`, `.wma`, `.m4a`) with **Browse…**, **Test**, and **Reset** in **Settings → Display** (Call alert) and **Settings → Wanted** (Wanted alert).
+
+### Checking for updates
+
+- Signal DX checks **GitHub Releases** automatically a few seconds after startup (toggleable under **Settings → About → Check for updates automatically on startup**).
+- When a newer version is published, a green **Update &lt;version&gt;** button appears in the top toolbar and the release notes appear in **Settings → About**.
+- Click the toolbar badge or **Download & install update** in **Settings → About** to download the Windows Setup installer, verify its SHA-256 checksum, close Signal DX cleanly (saving settings and unkeying CAT PTT), and launch the installer.
+- Installing an update is blocked while transmitting or tuning so an active transmission is never interrupted. You can also check manually anytime with **Check for updates**.
 
 ### WSPR-2
 
