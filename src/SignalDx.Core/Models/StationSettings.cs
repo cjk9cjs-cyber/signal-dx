@@ -9,12 +9,6 @@ public enum CatBackend
     HamRadioDeluxe = 4
 }
 
-public enum DecoderEngine
-{
-    Simulate = 0,
-    Jtdx = 1
-}
-
 public sealed class StationSettings
 {
     public string MyCall { get; set; } = "W1ABC";
@@ -36,9 +30,6 @@ public sealed class StationSettings
     public bool AudioHzMemoryInitialized { get; set; }
     public bool AutoSequence { get; set; } = true;
     public bool EnableTx { get; set; }
-    public bool SimulateDecodes { get; set; } = true;
-    /// <summary>Preferred decoder when Simulate is off: Simulate fallback or JTDX jtdxjt9.</summary>
-    public DecoderEngine DecoderEngine { get; set; } = DecoderEngine.Simulate;
     /// <summary>Full path to jtdxjt9.exe (JTDX bin folder).</summary>
     public string JtdxJt9Path { get; set; } = "";
     /// <summary>jtdxjt9 -d depth (1–3).</summary>

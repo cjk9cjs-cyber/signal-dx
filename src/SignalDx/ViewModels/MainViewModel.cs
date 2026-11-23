@@ -35,7 +35,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     int _selectedWantedKindIndex;
     readonly SpectrumAnalyzer _spectrum = new(4096);
     readonly SlotTiming _timing = new();
-    readonly SimulatedDecoder _sim = new();
     readonly JtdxDecoderService _jtdx = new();
     readonly AutoSequencer _seq = new();
     int _jtdxDecodeSeq;
@@ -407,8 +406,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand TestWantedAlertCommand { get; }
     public ICommand BrowseWantedAlertSoundCommand { get; }
     public ICommand ClearWantedAlertSoundCommand { get; }
-
-    public ObservableCollection<string> DecoderEngines { get; } = ["Simulate", "Jtdx"];
 
     public string AboutProductName => AppInfo.ProductName;
     public string AboutCreator => AppInfo.CreatorName;
@@ -999,26 +996,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    public bool SimulateDecodes
-    {
-        get => _settings.SimulateDecodes;
-        set { _settings.SimulateDecodes = value; Raise(); Raise(nameof(DecoderStatusText)); }
-    }
-
-    public string SelectedDecoderEngine
-    {
-        get => _settings.DecoderEngine.ToString();
-        set
-        {
-            if (Enum.TryParse(value, ignoreCase: true, out DecoderEngine eng))
-            {
-                _settings.DecoderEngine = eng;
-                Raise();
-                Raise(nameof(DecoderStatusText));
-            }
-        }
-    }
-
     public string JtdxJt9Path
     {
         get => _settings.JtdxJt9Path;
@@ -1031,17 +1008,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.JtdxDecodeDepth = Math.Clamp(value, 1, 3); Raise(); }
     }
 
-    public string DecoderStatusText
-    {
-        get
-        {
-            if (SimulateDecodes || _settings.DecoderEngine == DecoderEngine.Simulate)
-                return "Decoder: Simulate";
-            if (_jtdx.IsAvailable(_settings.JtdxJt9Path))
-                return "Decoder: JTDX";
-            return "Decoder: JTDX (path missing — sim fallback)";
-        }
-    }
+    public string DecoderStatusText =>
+        _jtdx.IsAvailable(_settings.JtdxJt9Path)
+            ? "Decoder: JTDX"
+            : "Decoder: JTDX (path missing — click Find)";
 
     public bool AutoSequence
     {
@@ -2910,8 +2880,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!string.IsNullOrWhiteSpace(found))
             {
                 _settings.JtdxJt9Path = found;
-                _settings.DecoderEngine = DecoderEngine.Jtdx;
-                _settings.SimulateDecodes = false;
             }
         }
 
@@ -2933,39 +2901,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         JtdxJt9Path = path;
-        SelectedDecoderEngine = nameof(DecoderEngine.Jtdx);
-        SimulateDecodes = false;
         Status = $"JTDX decoder: {path}";
     }
 
-    bool ShouldUseJtdx() =>
-        !SimulateDecodes
-        && _settings.DecoderEngine == DecoderEngine.Jtdx
-        && _jtdx.IsAvailable(_settings.JtdxJt9Path);
-
     void TriggerSlotDecode()
     {
-        if (ShouldUseJtdx())
+        if (!_jtdx.IsAvailable(_settings.JtdxJt9Path))
         {
-            if (_jtdx.IsBusy)
-            {
-                Status = "JTDX still decoding previous slot…";
-                AppendDecodeLog("skip: decoder busy");
-                FinishDeferredTxAfterDecode(); // don't skip our TX slot entirely
-                return;
-            }
-            _ = DecodeWithJtdxAsync();
+            Status = "JTDX decoder not configured — open Settings → Decoder and click Find.";
+            FinishDeferredTxAfterDecode();
             return;
         }
 
-        if (SimulateDecodes || _settings.DecoderEngine == DecoderEngine.Simulate ||
-            !_jtdx.IsAvailable(_settings.JtdxJt9Path))
+        if (_jtdx.IsBusy)
         {
-            InjectSimulatedDecodes();
+            Status = "JTDX still decoding previous slot…";
+            AppendDecodeLog("skip: decoder busy");
+            FinishDeferredTxAfterDecode(); // don't skip our TX slot entirely
             return;
         }
 
-        FinishDeferredTxAfterDecode();
+        _ = DecodeWithJtdxAsync();
     }
 
     async Task DecodeWithJtdxAsync()
@@ -3046,12 +3002,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    void InjectSimulatedDecodes()
-    {
-        var hits = _sim.GenerateSlot(_timing.UtcNow, _settings);
-        PushDecodes(hits, "sim", _timing.UtcNow);
-    }
-
     void PushDecodes(IReadOnlyList<DecodeHit> hits, string engineLabel, DateTime utc)
     {
         void body()
@@ -3065,7 +3015,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 MarkWorkingFlags(hit);
                 string? want = _wanted.Match(hit);
                 hit.IsWanted = want is not null;
-                hit.IsUnverified = engineLabel != "sim" && IsUnverifiedDecode(hit);
+                hit.IsUnverified = IsUnverifiedDecode(hit);
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);

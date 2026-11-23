@@ -321,31 +321,22 @@
                   <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                   </Grid.RowDefinitions>
 
-                  <Label Grid.Row="0" Grid.Column="0" Content="Engine"/>
-                  <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,12,8"
-                            ItemsSource="{Binding DecoderEngines}"
-                            SelectedItem="{Binding SelectedDecoderEngine}"/>
-                  <Label Grid.Row="0" Grid.Column="2" Content="Depth"/>
-                  <TextBox Grid.Row="0" Grid.Column="3" Margin="0,0,0,8"
-                           Text="{Binding JtdxDecodeDepth, UpdateSourceTrigger=PropertyChanged}"
-                           ToolTip="jtdxjt9 -d depth (1–3)"/>
-
-                  <Label Grid.Row="1" Grid.Column="0" Content="jtdxjt9"/>
-                  <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                  <Label Grid.Row="0" Grid.Column="0" Content="jtdxjt9"/>
+                  <DockPanel Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,8">
                     <Button DockPanel.Dock="Right" Content="Find" Command="{Binding FindJtdxCommand}" Margin="6,0,0,0"/>
                     <TextBox Text="{Binding JtdxJt9Path, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Path to jtdxjt9.exe — run from its bin folder for DLL resolution"/>
                   </DockPanel>
 
-                  <CheckBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
-                            Content="Force Simulate on main console (overrides JTDX)"
-                            IsChecked="{Binding SimulateDecodes}"/>
+                  <Label Grid.Row="1" Grid.Column="0" Content="Depth"/>
+                  <TextBox Grid.Row="1" Grid.Column="1" Margin="0,0,12,0"
+                           Text="{Binding JtdxDecodeDepth, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="jtdxjt9 -d depth (1–3)"/>
                 </Grid>
                 <TextBlock Margin="0,10,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           Text="The Windows installer ships jtdxjt9 under Tools\JTDX (plus WSJT ft8code and Hamlib). Find uses the bundled copy first, then any system install. Start Monitor so a full slot of audio is buffered. Simulate forces fake decodes for offline UI work. HRD is not bundled — pick Ham Radio Deluxe as CAT backend if you already run HRD Rig Control."/>
+                           Text="The Windows installer ships jtdxjt9 under Tools\JTDX (plus WSJT ft8code and Hamlib). Find uses the bundled copy first, then any system install. Start Monitor so a full slot of audio is buffered. HRD is not bundled — pick Ham Radio Deluxe as CAT backend if you already run HRD Rig Control."/>
               </StackPanel>
             </Border>
           </StackPanel>

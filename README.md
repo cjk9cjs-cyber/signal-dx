@@ -44,7 +44,7 @@ Output: `artifacts\installer\SignalDx-<version>-Setup.exe`
 | Area | Behavior |
 |------|----------|
 | Waterfall | Live spectrum from mic / VAC / radio audio |
-| Decode | JTDX `jtdxjt9` engine on each UTC slot (or Simulate) |
+| Decode | JTDX `jtdxjt9` engine on each UTC slot |
 | Modes | FT8 (15 s) and FT4 (7.5 s) slot clock |
 | Band presets | Common FT8/FT4 dial frequencies |
 | Auto sequence | CQ → report → R+report → RR73 workflow |
@@ -63,11 +63,11 @@ Open **Settings** from the main window for:
 
 - **Hamlib / CAT** — model, device, `rigctld`, connect/PTT/mode/freq
 - **Logbooks** — WSJT-X UDP, ADIF path, Club Log, QRZ
-- **Decoder** — Simulate vs JTDX, path to `jtdxjt9.exe`, decode depth
+- **Decoder** — path to `jtdxjt9.exe` and decode depth (1–3)
 - **Wanted** — callsigns, US/CA states (e.g. `IL`), or countries (e.g. `Japan`). Wanted alert plays a distinct chime (or custom audio file via Browse/Test/Reset; CQ-only by default). Matching decode rows are highlighted in red in Band Activity and RX Frequency.
 - **About** — version info, bundled how-to guide, and **Updates** (startup check toggle, **Check for updates**, release notes, and one-click verified installer download).
 
-The main console keeps a compact CAT status (freq / PTT) in the status bar. Uncheck **Simulate** (or set Engine to JTDX) after **Find** locates `jtdxjt9.exe`, then **Start Monitor** so each slot buffers audio for the decoder.
+The main console keeps a compact CAT status (freq / PTT) in the status bar. Use **Find** in Settings → Decoder if `jtdxjt9.exe` isn't located automatically, then **Monitor** so each slot buffers audio for the decoder.
 
 ### Hamlib
 
@@ -96,7 +96,6 @@ On **Log QSO**, Signal DX can append ADIF, broadcast WSJT-X UDP (`127.0.0.1:2237
 
 ## Notes
 
-- Simulated decodes keep the operator loop usable without RF or JTDX.
 - Real decode shells out to JTDX `jtdxjt9` with a 12 kHz WAV of the last slot (working directory = JTDX `bin` for DLLs).
 - TX audio is FT8-like 8-FSK for monitoring — not a full LDPC channel encoder/decoder.
 - Serial CAT dialects vary by radio; Hamlib is the most reliable path for uncommon models.

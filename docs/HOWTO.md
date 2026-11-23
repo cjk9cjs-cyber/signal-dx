@@ -39,18 +39,16 @@ Do these in order before you go on the air.
 2. Choose **Out** = audio back to the radio (same interface TX path).
 3. Click **Monitor**. Watch the RX level bar — aim for roughly mid-scale (not pegged).
 4. Adjust radio AF / VAC / Windows recording level until the bar is healthy.
-5. Leave **Simulate** checked only for dry practice. For on-air use, turn **Simulate** off (see Decoder below).
 
-### C. Decoder (real FT8/FT4)
+### C. Decoder (FT8/FT4)
 
 1. **Settings → Decoder**.
-2. Engine: **JTDX**. Use **Find** if the path is empty — the installer usually points at `Tools\JTDX\jtdxjt9.exe`.
+2. Use **Find** if the `jtdxjt9` path is empty — the installer usually points at `Tools\JTDX\jtdxjt9.exe`.
 3. Depth `1`–`3` (higher = deeper / slower). Start with `3`.
-4. Uncheck **Force Simulate on main console**.
-5. On the main window uncheck **Simulate**, keep **Monitor** running.
-6. After a few UTC slots, **Band Activity** should fill with real decodes.
+4. Keep **Monitor** running on the main window.
+5. After a few UTC slots, **Band Activity** should fill with decodes.
 
-If Band Activity stays empty: confirm Monitor is on, In device is correct, Simulate is off, and `jtdxjt9` path is valid.
+If Band Activity stays empty: confirm Monitor is on, In device is correct, and the `jtdxjt9` path is valid.
 
 ### D. CAT (radio control)
 
@@ -119,7 +117,7 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 | **My Call / Grid / Mode / Band** | Station and operating context |
 | **DX / Grid / Rpt / Phase** | Working station and auto-seq phase |
 | **Monitor / Enable TX / Halt / Tune** | RX decode loop and TX arming |
-| **Auto seq / Call alert / Wanted alert / Simulate / TX even** | Behavior toggles |
+| **Auto seq / Call alert / Wanted alert / TX even** | Behavior toggles |
 | **In / Out** | Audio devices |
 | **Waterfall** | Live spectrum; click to set Rx/Tx; right-click / Shift for Tx-only variants |
 | **Band Activity** | All decodes (SNR, DT, Hz, distance, flag, country, state, message) |
@@ -209,7 +207,7 @@ On **Log QSO**, Signal DX can:
 ## 5. Typical on-air session
 
 1. Start Signal DX → set call/grid if needed.
-2. **Monitor** on → correct In/Out → Simulate **off**.
+2. **Monitor** on → correct In/Out.
 3. CAT **Connect** (if used) → **Apply band**.
 4. Confirm decodes in Band Activity.
 5. Click waterfall for a clear Tx Hz.
@@ -223,7 +221,7 @@ On **Log QSO**, Signal DX can:
 
 | Symptom | Try this |
 |---------|----------|
-| No decodes | Monitor on; Simulate off; correct In device; JTDX path; wait for a full slot |
+| No decodes | Monitor on; correct In device; JTDX path; wait for a full slot |
 | TX but radio silent | Out device; Drive %; radio USB/DATA input; PTT on TX; CAT connected |
 | Wrong sideband / no digi | CAT digi mode (DATA-U); Apply band again; Settings → Set mode |
 | Enable TX was on at start | Fixed in 2.12.1+ — TX is session-only and starts off |
