@@ -73,6 +73,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     double _rxLevelNorm;
     bool _isTransmitting;
     bool _isTuning;
+    bool _disposed;
     CancellationTokenSource? _tuneCts;
     bool _rigPtt;
     int _qrzLookupSeq;
@@ -129,6 +130,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settingsStore.Save(_settings);
         }
         InitializeAndRestoreAudioHzMemory();
+        // Never launch with TX armed — Enable TX is session-only (not restored from disk).
+        _settings.EnableTx = false;
         PreferJtdxIfAvailable();
 
         foreach (var e in _logStore.Entries)
@@ -208,6 +211,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshRigCommand = new RelayCommand(() => _ = RefreshRigFromRadioAsync());
         FindRigctldCommand = new RelayCommand(FindRigctld);
         FindJtdxCommand = new RelayCommand(FindJtdx);
+        OpenHowtoCommand = new RelayCommand(OpenHowtoGuide);
+        OpenReadmeCommand = new RelayCommand(OpenReadme);
+        OpenHowtoPdfDownloadCommand = new RelayCommand(() => OpenExternalUrl(AppInfo.HowtoPdfUrl));
+        OpenReleasesCommand = new RelayCommand(() => OpenExternalUrl(AppInfo.ReleasesUrl));
         LookupQrzCommand = new RelayCommand(
             () => LookupQrzInBrowser(),
             () => !string.IsNullOrWhiteSpace(ResolveQrzCall()));
@@ -349,6 +356,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand RefreshRigCommand { get; }
     public ICommand FindRigctldCommand { get; }
     public ICommand FindJtdxCommand { get; }
+    public ICommand OpenHowtoCommand { get; }
+    public ICommand OpenReadmeCommand { get; }
+    public ICommand OpenHowtoPdfDownloadCommand { get; }
+    public ICommand OpenReleasesCommand { get; }
 
     public ObservableCollection<string> DecoderEngines { get; } = ["Simulate", "Jtdx"];
 
@@ -2885,6 +2896,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 MarkWorkingFlags(hit);
                 string? want = _wanted.Match(hit);
                 hit.IsWanted = want is not null;
+                hit.IsUnverified = engineLabel != "sim" && IsUnverifiedDecode(hit);
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);
@@ -3166,6 +3178,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return AutoSequencer.ExtractQsoToken(hit.Message) == Ft8QsoToken.Grid;
     }
 
+    bool IsUnverifiedDecode(DecodeHit hit)
+    {
+        string call = hit.DxCall?.Trim() ?? "";
+        if (call.Length == 0) return false;
+        if (call.Equals(MyCall?.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
+        if (call.Equals(DxCall?.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
+        return !KnownCallsigns.Contains(call);
+    }
+
     void MarkWorkingFlags(DecodeHit hit)
     {
         hit.IsPreviouslyWorked = _workedCalls.Contains(hit.DxCall);
@@ -3208,7 +3229,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             DxCall = txCall,
             DxGrid = txGrid,
             Country = country,
-            State = UsState.Resolve(country, txGrid, txCall),
+            State = UsState.Resolve(country, MyGrid, txCall),
             IsNew = false,
             IsCq = parsed.IsCq,
             IsToMe = false,
@@ -3860,7 +3881,78 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     static void OpenQrzInBrowser(string? callsign)
     {
-        string url = QrzLookupClient.BrowserUrl(callsign ?? "");
+        OpenExternalUrl(QrzLookupClient.BrowserUrl(callsign ?? ""));
+    }
+
+    void OpenHowtoGuide()
+    {
+        // Prefer bundled PDF, then markdown, then GitHub.
+        if (TryOpenBundledDoc("SignalDx-HOWTO.pdf") ||
+            TryOpenBundledDoc("HOWTO.md"))
+        {
+            Status = "Opened how-to guide";
+            return;
+        }
+
+        OpenExternalUrl(AppInfo.HowtoUrl);
+        Status = "Opened how-to guide online";
+    }
+
+    void OpenReadme()
+    {
+        if (TryOpenBundledDoc("README.md"))
+        {
+            Status = "Opened README";
+            return;
+        }
+
+        OpenExternalUrl(AppInfo.ReadmeUrl);
+        Status = "Opened README online";
+    }
+
+    static bool TryOpenBundledDoc(string fileName)
+    {
+        string? path = FindBundledDoc(fileName);
+        if (path is null) return false;
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static string? FindBundledDoc(string fileName)
+    {
+        string baseDir = AppContext.BaseDirectory;
+        string[] candidates =
+        [
+            Path.Combine(baseDir, "Docs", fileName),
+            Path.Combine(baseDir, fileName),
+            // Dev / repo layout when running from bin\...
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", "docs", fileName)),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", fileName)),
+        ];
+        foreach (string c in candidates)
+        {
+            try
+            {
+                if (File.Exists(c)) return c;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+        return null;
+    }
+
+    static void OpenExternalUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
         try
         {
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
@@ -4011,7 +4103,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     async Task SaveSettingsAsync()
     {
-        _settingsStore.Save(_settings);
+        PersistSettingsSafe();
         _external.Configure(_settings);
         if (_settings.CatBackend != CatBackend.None)
             await ConnectCatAsync();
@@ -4024,9 +4116,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return v >= 0 ? $"+{v:00}" : $"{v:00}";
     }
 
-    public void SaveSettingsNow()
+    public void SaveSettingsNow() => PersistSettingsSafe();
+
+    /// <summary>
+    /// Write settings without persisting Enable TX armed — restart must never auto-key.
+    /// In-memory EnableTx for the current session is preserved.
+    /// </summary>
+    void PersistSettingsSafe()
     {
-        _settingsStore.Save(_settings);
+        bool armed = _settings.EnableTx;
+        _settings.EnableTx = false;
+        try
+        {
+            _settingsStore.Save(_settings);
+        }
+        finally
+        {
+            _settings.EnableTx = armed;
+        }
     }
 
     public void CaptureWindowPlacement(double left, double top, double width, double height, bool maximized)
@@ -4086,6 +4193,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
+        _settings.EnableTx = false;
+        _isTransmitting = false;
+        _isTuning = false;
         try { _tuneCts?.Cancel(); } catch { /* ignore */ }
         try { _tuneCts?.Dispose(); } catch { /* ignore */ }
         _tuneCts = null;
@@ -4096,11 +4209,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RememberAudioHzForMode(IsWsprMode);
         // Always flush markers / mode memory — Closing may be skipped on force-kill rebuilds.
         try { SaveSettingsNow(); } catch { /* ignore */ }
+        _playback.Stop();
         _jtdx.Dispose();
         _capture.Dispose();
         _playback.Dispose();
         _callAlert.Dispose();
         _external.Dispose();
-        _ = _cat.DisposeAsync().AsTask();
+        // Wait briefly so CAT PTT-off completes before the process exits (prevents latched TX in HRD/rigctld).
+        try { Task.Run(async () => await _cat.DisposeAsync().ConfigureAwait(false)).Wait(2000); }
+        catch { /* best-effort shutdown unkey */ }
     }
 }

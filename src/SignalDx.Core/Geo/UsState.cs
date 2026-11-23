@@ -1,85 +1,121 @@
+using System.Text.Json;
+
 namespace SignalDx.Geo;
 
-/// <summary>Approximate US state from Maidenhead grid (bounding boxes).</summary>
+/// <summary>
+/// US state from a Maidenhead grid center, using real state boundary polygons
+/// (embedded us-states.geojson). Grids that fall on water use the nearest state
+/// within a small tolerance so Great Lakes / coastal squares still resolve.
+/// </summary>
 public static class UsState
 {
-    // minLat, maxLat, minLon, maxLon, abbreviation — rough boxes, smallest area wins on overlap.
-    static readonly (double MinLat, double MaxLat, double MinLon, double MaxLon, string Abbr, string Name)[] Boxes =
-    [
-        (24.5, 31.1, -87.7, -80.0, "FL", "Florida"),
-        (30.2, 35.0, -88.5, -84.8, "AL", "Alabama"),
-        (30.1, 35.0, -91.7, -88.0, "MS", "Mississippi"),
-        (28.9, 33.1, -94.1, -89.6, "LA", "Louisiana"),
-        (33.0, 36.7, -94.7, -89.6, "AR", "Arkansas"),
-        (33.7, 36.7, -90.4, -81.6, "TN", "Tennessee"),
-        (30.3, 35.1, -85.7, -80.7, "GA", "Georgia"),
-        (32.0, 35.3, -83.4, -78.4, "SC", "South Carolina"),
-        (33.7, 36.7, -84.4, -75.4, "NC", "North Carolina"),
-        (36.5, 39.5, -83.7, -75.1, "VA", "Virginia"),
-        (37.8, 40.7, -82.7, -74.9, "MD", "Maryland"),
-        (38.7, 39.8, -77.2, -76.8, "DC", "District of Columbia"),
-        (37.8, 40.7, -82.7, -77.6, "WV", "West Virginia"),
-        (36.4, 39.2, -89.6, -81.9, "KY", "Kentucky"),
-        (38.3, 42.0, -84.9, -80.4, "OH", "Ohio"),
-        (39.6, 42.3, -80.6, -74.6, "PA", "Pennsylvania"),
-        (38.8, 41.4, -75.6, -73.8, "NJ", "New Jersey"),
-        (40.4, 45.1, -79.9, -71.7, "NY", "New York"),
-        (40.9, 42.1, -73.8, -71.7, "CT", "Connecticut"),
-        (41.1, 42.1, -71.9, -71.1, "RI", "Rhode Island"),
-        (41.2, 42.9, -73.6, -69.8, "MA", "Massachusetts"),
-        (42.6, 45.4, -73.5, -70.9, "VT", "Vermont"),
-        (42.6, 45.4, -72.6, -70.5, "NH", "New Hampshire"),
-        (43.0, 47.5, -71.2, -66.8, "ME", "Maine"),
-        (41.6, 48.3, -90.5, -82.3, "MI", "Michigan"),
-        (37.7, 41.8, -88.2, -84.7, "IN", "Indiana"),
-        (36.9, 42.6, -91.6, -87.0, "IL", "Illinois"),
-        (42.4, 47.2, -92.9, -86.7, "WI", "Wisconsin"),
-        (43.4, 49.4, -97.3, -89.4, "MN", "Minnesota"),
-        (40.3, 43.6, -96.7, -90.1, "IA", "Iowa"),
-        (35.9, 40.7, -95.9, -89.0, "MO", "Missouri"),
-        (33.5, 37.1, -103.1, -94.3, "OK", "Oklahoma"),
-        (25.8, 36.6, -106.7, -93.4, "TX", "Texas"),
-        (36.9, 41.1, -102.1, -95.2, "KS", "Kansas"),
-        (40.0, 43.1, -104.1, -95.2, "NE", "Nebraska"),
-        (42.4, 46.0, -104.2, -96.4, "SD", "South Dakota"),
-        (45.8, 49.1, -104.2, -96.5, "ND", "North Dakota"),
-        (44.9, 49.1, -116.1, -104.0, "MT", "Montana"),
-        (40.9, 45.1, -111.1, -104.0, "WY", "Wyoming"),
-        (36.9, 41.1, -109.2, -102.0, "CO", "Colorado"),
-        (31.3, 37.1, -109.2, -103.0, "NM", "New Mexico"),
-        (31.3, 37.1, -115.0, -109.0, "AZ", "Arizona"),
-        (36.9, 42.1, -114.1, -109.0, "UT", "Utah"),
-        (41.9, 49.1, -117.3, -111.0, "ID", "Idaho"),
-        (35.0, 42.1, -120.1, -114.0, "NV", "Nevada"),
-        (41.9, 46.3, -124.7, -116.4, "OR", "Oregon"),
-        (45.5, 49.1, -124.9, -116.9, "WA", "Washington"),
-        (32.5, 42.1, -124.5, -114.1, "CA", "California"),
-        (18.8, 22.4, -160.4, -154.7, "HI", "Hawaii"),
-        (51.0, 71.5, -179.2, -129.9, "AK", "Alaska"),
-        (17.8, 18.6, -67.4, -65.2, "PR", "Puerto Rico"),
-        (17.6, 18.5, -65.2, -64.5, "VI", "US Virgin Islands"),
-        (13.2, 13.8, -145.0, -144.5, "GU", "Guam"),
-    ];
+    static readonly Dictionary<string, string> Abbr = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Alabama"] = "AL", ["Alaska"] = "AK", ["Arizona"] = "AZ", ["Arkansas"] = "AR",
+        ["California"] = "CA", ["Colorado"] = "CO", ["Connecticut"] = "CT", ["Delaware"] = "DE",
+        ["District of Columbia"] = "DC", ["Florida"] = "FL", ["Georgia"] = "GA", ["Hawaii"] = "HI",
+        ["Idaho"] = "ID", ["Illinois"] = "IL", ["Indiana"] = "IN", ["Iowa"] = "IA",
+        ["Kansas"] = "KS", ["Kentucky"] = "KY", ["Louisiana"] = "LA", ["Maine"] = "ME",
+        ["Maryland"] = "MD", ["Massachusetts"] = "MA", ["Michigan"] = "MI", ["Minnesota"] = "MN",
+        ["Mississippi"] = "MS", ["Missouri"] = "MO", ["Montana"] = "MT", ["Nebraska"] = "NE",
+        ["Nevada"] = "NV", ["New Hampshire"] = "NH", ["New Jersey"] = "NJ", ["New Mexico"] = "NM",
+        ["New York"] = "NY", ["North Carolina"] = "NC", ["North Dakota"] = "ND", ["Ohio"] = "OH",
+        ["Oklahoma"] = "OK", ["Oregon"] = "OR", ["Pennsylvania"] = "PA", ["Rhode Island"] = "RI",
+        ["South Carolina"] = "SC", ["South Dakota"] = "SD", ["Tennessee"] = "TN", ["Texas"] = "TX",
+        ["Utah"] = "UT", ["Vermont"] = "VT", ["Virginia"] = "VA", ["Washington"] = "WA",
+        ["West Virginia"] = "WV", ["Wisconsin"] = "WI", ["Wyoming"] = "WY", ["Puerto Rico"] = "PR",
+    };
+
+    const double NearestToleranceDeg = 0.3;
+
+    readonly record struct Pt(double Lon, double Lat);
+
+    sealed record Part(double MinLat, double MaxLat, double MinLon, double MaxLon, Pt[][] Rings);
+
+    sealed record Shape(string Abbr, Part[] Parts);
+
+    static readonly Lazy<Shape[]> Shapes = new(LoadShapes);
+
+    static Shape[] LoadShapes()
+    {
+        using var stream = typeof(UsState).Assembly.GetManifestResourceStream("SignalDx.Data.us-states.geojson");
+        if (stream is null) return [];
+
+        using var doc = JsonDocument.Parse(stream);
+        var shapes = new List<Shape>();
+        foreach (var feature in doc.RootElement.GetProperty("features").EnumerateArray())
+        {
+            string name = feature.GetProperty("properties").GetProperty("name").GetString() ?? "";
+            if (!Abbr.TryGetValue(name, out var abbr)) continue;
+
+            var geometry = feature.GetProperty("geometry");
+            string type = geometry.GetProperty("type").GetString() ?? "";
+            var coords = geometry.GetProperty("coordinates");
+            var parts = new List<Part>();
+            if (type == "Polygon")
+                parts.Add(ReadPolygon(coords));
+            else if (type == "MultiPolygon")
+                foreach (var polygon in coords.EnumerateArray())
+                    parts.Add(ReadPolygon(polygon));
+
+            shapes.Add(new Shape(abbr, parts.ToArray()));
+        }
+        return shapes.ToArray();
+    }
+
+    static Part ReadPolygon(JsonElement polygon)
+    {
+        var rings = polygon.EnumerateArray()
+            .Select(ring => ring.EnumerateArray()
+                .Select(p => new Pt(p[0].GetDouble(), p[1].GetDouble()))
+                .ToArray())
+            .ToArray();
+        var outer = rings[0];
+        return new Part(
+            outer.Min(p => p.Lat), outer.Max(p => p.Lat),
+            outer.Min(p => p.Lon), outer.Max(p => p.Lon),
+            rings);
+    }
 
     public static string? FromGrid(string? grid)
     {
         if (!Maidenhead.TryGetLatLon(grid, out double lat, out double lon))
             return null;
+        return FromLatLon(lat, lon);
+    }
 
-        string? best = null;
-        double bestArea = double.MaxValue;
-        foreach (var b in Boxes)
+    public static string? FromLatLon(double lat, double lon)
+    {
+        var shapes = Shapes.Value;
+
+        string? inside = null;
+        double insideArea = double.MaxValue;
+        foreach (var shape in shapes)
+        foreach (var part in shape.Parts)
         {
-            if (lat < b.MinLat || lat > b.MaxLat || lon < b.MinLon || lon > b.MaxLon)
-                continue;
-            double area = (b.MaxLat - b.MinLat) * (b.MaxLon - b.MinLon);
-            if (area < bestArea)
+            if (!Contains(part, lat, lon)) continue;
+            double area = (part.MaxLat - part.MinLat) * (part.MaxLon - part.MinLon);
+            if (area < insideArea)
             {
-                bestArea = area;
-                best = b.Abbr;
+                insideArea = area;
+                inside = shape.Abbr;
             }
         }
-        return best;
+        if (inside is not null) return inside;
+
+        string? nearest = null;
+        double best = NearestToleranceDeg;
+        foreach (var shape in shapes)
+        foreach (var part in shape.Parts)
+        {
+            double d = DistanceDeg(part, lat, lon);
+            if (d <= best)
+            {
+                best = d;
+                nearest = shape.Abbr;
+            }
+        }
+        return nearest;
     }
 
     public static string? Resolve(string? country, string? grid, string? callsign = null)
@@ -99,6 +135,52 @@ public static class UsState
 
         // Only real 2-letter states from grid / territory — never call-district
         // nicknames like "SCEN" / "NE" (those are not states).
-        return FromGrid(grid);
+        return FromGrid(CallGridDatabase.PreferredGrid(callsign, grid));
+    }
+
+    static bool Contains(Part part, double lat, double lon)
+    {
+        if (lat < part.MinLat || lat > part.MaxLat || lon < part.MinLon || lon > part.MaxLon)
+            return false;
+
+        bool inside = false;
+        foreach (var ring in part.Rings)
+        {
+            for (int i = 0, j = ring.Length - 1; i < ring.Length; j = i++)
+            {
+                var a = ring[i];
+                var b = ring[j];
+                if ((a.Lat > lat) != (b.Lat > lat) &&
+                    lon < (b.Lon - a.Lon) * (lat - a.Lat) / (b.Lat - a.Lat) + a.Lon)
+                    inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    static double DistanceDeg(Part part, double lat, double lon)
+    {
+        double cosLat = Math.Cos(lat * Math.PI / 180.0);
+        double best = double.MaxValue;
+        foreach (var ring in part.Rings)
+        {
+            for (int i = 0, j = ring.Length - 1; i < ring.Length; j = i++)
+            {
+                double d = SegmentDistance(lon, lat, ring[j], ring[i], cosLat);
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    }
+
+    static double SegmentDistance(double px, double py, Pt a, Pt b, double cosLat)
+    {
+        double x = px * cosLat, y = py;
+        double ax = a.Lon * cosLat, ay = a.Lat;
+        double dx = b.Lon * cosLat - ax, dy = b.Lat - ay;
+        double len2 = dx * dx + dy * dy;
+        double t = len2 == 0 ? 0 : Math.Clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1);
+        double ex = ax + t * dx - x, ey = ay + t * dy - y;
+        return Math.Sqrt(ex * ex + ey * ey);
     }
 }

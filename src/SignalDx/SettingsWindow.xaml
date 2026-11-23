@@ -399,7 +399,7 @@
                            ToolTip="Leave blank to use the Call alert WAV / built-in call-alert.wav"/>
                 </DockPanel>
                 <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           Text="Matches the transmitting station’s call, US/CA state, or country. Plays an audio alert and highlights the row in Band Activity."/>
+                           Text="Matches the transmitting station’s call, US/CA state, or country. Plays an audio alert and highlights the row in red in Band Activity / RX Frequency."/>
               </StackPanel>
             </Border>
 
@@ -501,7 +501,32 @@
               <TextBlock Margin="0,20,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                          Text="{Binding AboutTagline}"/>
 
-              <TextBlock Margin="0,18,0,6" FontWeight="SemiBold"
+              <TextBlock Margin="0,18,0,8" FontWeight="SemiBold"
+                         Foreground="{StaticResource AccentBrush}"
+                         Text="Documentation"/>
+              <WrapPanel Margin="0,0,0,4">
+                <Button Content="Open how-to guide"
+                        Command="{Binding OpenHowtoCommand}"
+                        Style="{StaticResource AccentButton}"
+                        Margin="0,0,8,8"
+                        ToolTip="Opens the bundled operator how-to (PDF preferred)"/>
+                <Button Content="Open README"
+                        Command="{Binding OpenReadmeCommand}"
+                        Margin="0,0,8,8"
+                        ToolTip="Opens the project README"/>
+                <Button Content="Download how-to PDF"
+                        Command="{Binding OpenHowtoPdfDownloadCommand}"
+                        Margin="0,0,8,8"
+                        ToolTip="Download SignalDx-HOWTO.pdf from GitHub Releases"/>
+                <Button Content="Releases"
+                        Command="{Binding OpenReleasesCommand}"
+                        Margin="0,0,0,8"
+                        ToolTip="GitHub Releases (installer + how-to PDF)"/>
+              </WrapPanel>
+              <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
+                         Text="The how-to covers first-time setup (audio, decoder, CAT, logging) and product features. A PDF is also available from Releases."/>
+
+              <TextBlock Margin="0,10,0,6" FontWeight="SemiBold"
                          Foreground="{StaticResource AccentBrush}"
                          Text="Acknowledgments"/>
               <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"

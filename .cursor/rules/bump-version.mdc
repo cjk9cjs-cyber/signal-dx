@@ -1,0 +1,25 @@
+---
+description: Bump Signal DX SemVer after every app adjustment (patch vs minor)
+alwaysApply: true
+---
+
+# Version bump on every app change
+
+After any user-facing or behavioral adjustment to Signal DX (code, UI, sequencer, audio, CAT, etc.):
+
+1. Update version in `src/SignalDx/SignalDx.csproj`:
+   - `<Version>` and `<InformationalVersion>` must stay in sync
+   - SemVer: `MAJOR.MINOR.PATCH` (always write all three parts, e.g. `2.12.1`)
+2. Choose the bump size by change scope:
+   - **Small / fix / polish** (bugfix, safety tweak, small UX, persistence, wording):
+     bump **PATCH** → `2.xx.yy` (example: `2.12.0` → `2.12.1`)
+   - **Larger feature / mode / substantial behavior**:
+     bump **MINOR**, reset PATCH to `0` → `2.xx.0` (example: `2.12.3` → `2.13.0`)
+   - **MAJOR** only for breaking / incompatible product changes (rare; ask if unsure)
+3. Update **`AppInfo.VersionDate`** in `src/SignalDx/AppInfo.cs` to **today’s local date**
+   (the day this version is cut). About → Version date reads this field.
+4. Do both in the same turn as the change (before or with the rebuild/relaunch).
+5. Skip bump only for pure docs/comments/tests that do not change the app binary behavior, or when the user says not to.
+
+About → Version reads assembly attributes via `AppInfo.Version`.
+About → Version date reads `AppInfo.VersionDate`.

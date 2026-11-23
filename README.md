@@ -1,6 +1,10 @@
 # Signal DX
 
-Windows digi operator console inspired by JTDX — waterfall, FT8/FT4 slot timing, auto-sequence, CAT control, and external logbook bridges.
+Windows digi operator console inspired by JTDX — waterfall, FT8/FT4/WSPR-2 slot timing, auto-sequence, CAT control, and external logbook bridges.
+
+**Operator guide (first-time setup + features):** [docs/HOWTO.md](docs/HOWTO.md) · [PDF download](https://github.com/cjk9cjs-cyber/signal-dx/releases/latest/download/SignalDx-HOWTO.pdf)
+
+In the app: toolbar **How-to**, or **Settings → About**.
 
 ## Requirements
 
@@ -45,6 +49,7 @@ Output: `artifacts\installer\SignalDx-<version>-Setup.exe`
 | Band presets | Common FT8/FT4 dial frequencies |
 | Auto sequence | CQ → report → R+report → RR73 workflow |
 | Band / Rx panes | Full activity plus Rx-frequency filter |
+| Wanted | Callsign, US/CA state, or country watch list; matches play an audio alert and highlight the row in red in Band Activity / RX Frequency |
 | CAT | Hamlib TCP (`rigctld`), Kenwood serial, Yaesu serial; dial + PTT |
 | Local log | JSON under `%LocalAppData%\SignalDx\` |
 | ADIF | Append file + full export dialog |
@@ -58,6 +63,7 @@ Open **Settings** from the main window for:
 - **Hamlib / CAT** — model, device, `rigctld`, connect/PTT/mode/freq
 - **Logbooks** — WSJT-X UDP, ADIF path, Club Log, QRZ
 - **Decoder** — Simulate vs JTDX, path to `jtdxjt9.exe`, decode depth
+- **Wanted** — callsigns, US/CA states (e.g. `IL`), or countries (e.g. `Japan`). Wanted alert plays audio (CQ-only by default). Matching decode rows are highlighted in red in Band Activity and RX Frequency.
 
 The main console keeps a compact CAT status (freq / PTT) in the status bar. Uncheck **Simulate** (or set Engine to JTDX) after **Find** locates `jtdxjt9.exe`, then **Start Monitor** so each slot buffers audio for the decoder.
 

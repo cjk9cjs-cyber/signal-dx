@@ -10,6 +10,7 @@ public sealed class DecodeHit : INotifyPropertyChanged
     bool _isWorking;
     bool _isPreviouslyWorked;
     bool _isWanted;
+    bool _isUnverified;
 
     public required DateTime Utc { get; init; }
     public required string Mode { get; init; }
@@ -50,6 +51,13 @@ public sealed class DecodeHit : INotifyPropertyChanged
     {
         get => _isWanted;
         set => SetField(ref _isWanted, value);
+    }
+
+    /// <summary>Transmitter is not on the bundled ALLCALL7 list (possible false decode). Display-only; never gates alerts.</summary>
+    public bool IsUnverified
+    {
+        get => _isUnverified;
+        set => SetField(ref _isUnverified, value);
     }
 
     public double? DistanceMiles { get; init; }

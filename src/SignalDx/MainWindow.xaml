@@ -16,7 +16,7 @@
                                TrueBrush="#33280A"
                                FalseBrush="Transparent"/>
     <conv:BoolToBrushConverter x:Key="WantedHighlight"
-                               TrueBrush="#1A3D2A"
+                               TrueBrush="#4A1212"
                                FalseBrush="Transparent"/>
     <conv:WorkingCallBrushConverter x:Key="WorkingCallBrushConverter"/>
     <conv:FlagImageConverter x:Key="FlagImage"/>
@@ -35,13 +35,21 @@
         </Setter.Value>
       </Setter>
       <Style.Triggers>
-        <DataTrigger Binding="{Binding IsWanted}" Value="True">
-          <Setter Property="Background" Value="#1A3D2A"/>
-          <Setter Property="BorderBrush" Value="#4FCF8A"/>
-          <Setter Property="BorderThickness" Value="0,0,0,1"/>
-        </DataTrigger>
         <DataTrigger Binding="{Binding IsPreviouslyWorked}" Value="True">
           <Setter Property="Opacity" Value="0.78"/>
+        </DataTrigger>
+        <!-- Not on ALLCALL7 (possible false decode) — dimmed. Before Wanted so a Wanted match still shows in full red. -->
+        <DataTrigger Binding="{Binding IsUnverified}" Value="True">
+          <Setter Property="Opacity" Value="0.45"/>
+        </DataTrigger>
+        <!-- Wanted call/state/country — red row + red text (with audio alert). Last so it wins over worked dimming. -->
+        <DataTrigger Binding="{Binding IsWanted}" Value="True">
+          <Setter Property="Background" Value="#4A1212"/>
+          <Setter Property="Foreground" Value="#FF4545"/>
+          <Setter Property="BorderBrush" Value="#FF4545"/>
+          <Setter Property="BorderThickness" Value="0,0,0,1"/>
+          <Setter Property="FontWeight" Value="SemiBold"/>
+          <Setter Property="Opacity" Value="1"/>
         </DataTrigger>
       </Style.Triggers>
     </Style>
@@ -94,6 +102,8 @@
                          HorizontalAlignment="Right" Margin="0,-2,0,0"/>
             </StackPanel>
             <Button Content="Settings" Command="{Binding OpenSettingsCommand}" Style="{StaticResource AccentButton}"/>
+            <Button Content="How-to" Command="{Binding OpenHowtoCommand}"
+                    ToolTip="Open the operator how-to guide (PDF / README)"/>
             <Button Content="Export ADIF" Command="{Binding ExportAdifCommand}"/>
           </StackPanel>
           <WrapPanel VerticalAlignment="Center">

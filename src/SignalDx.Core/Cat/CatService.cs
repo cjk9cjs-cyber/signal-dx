@@ -4,10 +4,17 @@ namespace SignalDx.Cat;
 
 public sealed class CatService : IAsyncDisposable
 {
+    readonly Func<StationSettings, ICatController> _controllerFactory;
     ICatController _controller = new NullCatController();
     CancellationTokenSource? _pollCts;
     Task? _pollTask;
     readonly HamlibRigctldLauncher _launcher = new();
+    bool _pttEnabled;
+
+    public CatService(Func<StationSettings, ICatController>? controllerFactory = null)
+    {
+        _controllerFactory = controllerFactory ?? Create;
+    }
 
     public event Action<RigSnapshot>? SnapshotChanged;
     public event Action<long>? FrequencyChanged;
@@ -23,7 +30,8 @@ public sealed class CatService : IAsyncDisposable
     public async Task ApplySettingsAsync(StationSettings settings, CancellationToken ct = default)
     {
         await StopAsync(stopLauncher: false).ConfigureAwait(false);
-        _controller = Create(settings);
+        _pttEnabled = settings.CatPttEnabled;
+        _controller = _controllerFactory(settings);
         if (settings.CatBackend == CatBackend.None)
         {
             StatusChanged?.Invoke("CAT disabled");
@@ -34,6 +42,10 @@ public sealed class CatService : IAsyncDisposable
         {
             await _controller.ConnectAsync(ct).ConfigureAwait(false);
             StatusChanged?.Invoke($"CAT connected: {_controller.Name}");
+
+            // Always ensure PTT is off on connect so a crash or restart mid-TX cannot leave the radio keyed.
+            if (_pttEnabled)
+                await TryForcePttOffAsync(ct).ConfigureAwait(false);
 
             // Do NOT push DialMhz or Mode here. Writing the saved dial forced 20m onto the VFO
             // before we could read the operator's band; SetMode can also bump Yaesu band-stacks.
@@ -115,6 +127,7 @@ public sealed class CatService : IAsyncDisposable
     public async Task SetPttAsync(bool on, bool enabled, CancellationToken ct = default)
     {
         if (!enabled || !_controller.IsConnected) return;
+        _pttEnabled = true;
         await _controller.SetPttAsync(on, ct).ConfigureAwait(false);
         StatusChanged?.Invoke(on ? "CAT PTT ON" : "CAT PTT OFF");
         LastSnapshot = new RigSnapshot
@@ -149,12 +162,29 @@ public sealed class CatService : IAsyncDisposable
             _pollTask = null;
         }
 
+        if (_pttEnabled && _controller.IsConnected)
+            await TryForcePttOffAsync(CancellationToken.None).ConfigureAwait(false);
+
         await _controller.DisconnectAsync().ConfigureAwait(false);
         await _controller.DisposeAsync().ConfigureAwait(false);
         _controller = new NullCatController();
 
         if (stopLauncher)
             _launcher.Stop();
+    }
+
+    async Task TryForcePttOffAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(1500);
+            await _controller.SetPttAsync(false, cts.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // best-effort safety unkey
+        }
     }
 
     void StartPolling()

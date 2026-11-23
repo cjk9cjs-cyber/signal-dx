@@ -15,7 +15,7 @@ public static class AppInfo
     /// Date this assembly version was cut. Update with every version bump
     /// (see .cursor/rules/bump-version.mdc).
     /// </summary>
-    public static readonly DateOnly VersionDate = new(2026, 11, 22); // 2.12.0
+    public static readonly DateOnly VersionDate = new(2026, 11, 23); // 2.13.1
 
     public static string Version
     {
@@ -41,6 +41,12 @@ public static class AppInfo
     public static string VersionDateDisplay => VersionDate.ToString("MMMM d, yyyy");
 
     public const string Tagline = "Windows FT8 / FT4 / WSPR-2 digi operator console.";
+
+    public const string RepoUrl = "https://github.com/cjk9cjs-cyber/signal-dx";
+    public const string ReadmeUrl = "https://github.com/cjk9cjs-cyber/signal-dx/blob/cursor/ft8-operator-console/README.md";
+    public const string HowtoUrl = "https://github.com/cjk9cjs-cyber/signal-dx/blob/cursor/ft8-operator-console/docs/HOWTO.md";
+    public const string HowtoPdfUrl = "https://github.com/cjk9cjs-cyber/signal-dx/releases/latest/download/SignalDx-HOWTO.pdf";
+    public const string ReleasesUrl = "https://github.com/cjk9cjs-cyber/signal-dx/releases";
 
     /// <summary>Third-party components bundled or invoked at runtime.</summary>
     public const string Acknowledgments =

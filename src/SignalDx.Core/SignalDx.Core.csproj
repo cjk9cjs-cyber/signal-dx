@@ -12,6 +12,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Data\hamlib-models.txt" LogicalName="SignalDx.Data.hamlib-models.txt" />
     <None Include="Data\hamlib-models.txt" CopyToOutputDirectory="PreserveNewest" Link="Data\hamlib-models.txt" />
+    <EmbeddedResource Include="Data\us-states.geojson" LogicalName="SignalDx.Data.us-states.geojson" />
+    <EmbeddedResource Include="Data\CALL3.TXT" LogicalName="SignalDx.Data.CALL3.TXT" />
+    <EmbeddedResource Include="Data\ALLCALL7.TXT" LogicalName="SignalDx.Data.ALLCALL7.TXT" />
   </ItemGroup>
 </Project>
 
