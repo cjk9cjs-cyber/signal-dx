@@ -104,7 +104,7 @@ public sealed class StationSettings
     public bool WantedAlertEnabled { get; set; } = true;
     /// <summary>When true, Wanted alerts only fire on CQ (calling out), not every decode.</summary>
     public bool WantedAlertCqOnly { get; set; } = true;
-    /// <summary>Optional WAV for Wanted alerts; empty uses Call alert WAV / built-in.</summary>
+    /// <summary>Optional WAV for Wanted alerts; empty uses built-in Assets/wanted-alert.wav.</summary>
     public string WantedAlertSoundPath { get; set; } = "";
     /// <summary>True after Wanted defaults were applied once (older settings.json lacked these fields → bool false).</summary>
     public bool WantedFeatureInitialized { get; set; }

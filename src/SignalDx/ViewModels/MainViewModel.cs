@@ -28,7 +28,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly WantedStore _wanted = new();
     readonly AudioCaptureService _capture = new();
     readonly AudioPlaybackService _playback = new();
-    readonly CallAlertService _callAlert = new();
+    readonly CallAlertService _callAlert = new("call-alert.wav");
+    readonly CallAlertService _wantedAlert = new("wanted-alert.wav");
     readonly Dictionary<string, DateTime> _wantedAlertedUtc = new(StringComparer.OrdinalIgnoreCase);
     string _newWantedValue = "";
     int _selectedWantedKindIndex;
@@ -215,6 +216,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenReadmeCommand = new RelayCommand(OpenReadme);
         OpenHowtoPdfDownloadCommand = new RelayCommand(() => OpenExternalUrl(AppInfo.HowtoPdfUrl));
         OpenReleasesCommand = new RelayCommand(() => OpenExternalUrl(AppInfo.ReleasesUrl));
+        TestCallAlertCommand = new RelayCommand(() => _callAlert.Play(CallAlertSoundPath, bypassCooldown: true));
+        BrowseCallAlertSoundCommand = new RelayCommand(BrowseCallAlertSound);
+        ClearCallAlertSoundCommand = new RelayCommand(() =>
+        {
+            CallAlertSoundPath = "";
+            SaveSettingsNow();
+            Status = "Call alert reset to built-in sound";
+        });
+        TestWantedAlertCommand = new RelayCommand(() => _wantedAlert.Play(WantedAlertSoundPath, bypassCooldown: true));
+        BrowseWantedAlertSoundCommand = new RelayCommand(BrowseWantedAlertSound);
+        ClearWantedAlertSoundCommand = new RelayCommand(() =>
+        {
+            WantedAlertSoundPath = "";
+            SaveSettingsNow();
+            Status = "Wanted alert reset to built-in sound";
+        });
         LookupQrzCommand = new RelayCommand(
             () => LookupQrzInBrowser(),
             () => !string.IsNullOrWhiteSpace(ResolveQrzCall()));
@@ -360,6 +377,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand OpenReadmeCommand { get; }
     public ICommand OpenHowtoPdfDownloadCommand { get; }
     public ICommand OpenReleasesCommand { get; }
+    public ICommand TestCallAlertCommand { get; }
+    public ICommand BrowseCallAlertSoundCommand { get; }
+    public ICommand ClearCallAlertSoundCommand { get; }
+    public ICommand TestWantedAlertCommand { get; }
+    public ICommand BrowseWantedAlertSoundCommand { get; }
+    public ICommand ClearWantedAlertSoundCommand { get; }
 
     public ObservableCollection<string> DecoderEngines { get; } = ["Simulate", "Jtdx"];
 
@@ -983,6 +1006,62 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public string WantedFilePath => _wanted.FilePath;
+
+    void BrowseCallAlertSound()
+    {
+        string? picked = PickAlertSoundFile("Choose Call alert sound", CallAlertSoundPath);
+        if (picked is null) return;
+        CallAlertSoundPath = picked;
+        SaveSettingsNow();
+        _callAlert.Play(picked, bypassCooldown: true);
+        Status = $"Call alert sound → {Path.GetFileName(picked)}";
+    }
+
+    void BrowseWantedAlertSound()
+    {
+        string? picked = PickAlertSoundFile("Choose Wanted alert sound", WantedAlertSoundPath);
+        if (picked is null) return;
+        WantedAlertSoundPath = picked;
+        SaveSettingsNow();
+        _wantedAlert.Play(picked, bypassCooldown: true);
+        Status = $"Wanted alert sound → {Path.GetFileName(picked)}";
+    }
+
+    static string? PickAlertSoundFile(string title, string? currentPath)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = title,
+            Filter = "Audio files (*.wav;*.mp3;*.wma;*.m4a)|*.wav;*.mp3;*.wma;*.m4a|WAV files (*.wav)|*.wav|All files (*.*)|*.*",
+            CheckFileExists = true,
+            RestoreDirectory = true
+        };
+
+        string? startDir = null;
+        if (!string.IsNullOrWhiteSpace(currentPath))
+        {
+            string? dir = Path.GetDirectoryName(currentPath.Trim());
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                startDir = dir;
+        }
+
+        if (startDir is null)
+        {
+            string[] candidates =
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HamApps", "Sounds"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "HamApps", "Sounds"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media"),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)
+            ];
+            startDir = candidates.FirstOrDefault(d => !string.IsNullOrWhiteSpace(d) && Directory.Exists(d));
+        }
+
+        if (!string.IsNullOrWhiteSpace(startDir))
+            dlg.InitialDirectory = startDir;
+
+        return dlg.ShowDialog() == true ? dlg.FileName : null;
+    }
 
     void ReloadWantedList()
     {
@@ -2918,15 +2997,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             UpdateRxActivityAfterNewHits(hits);
             _external.ReportDecodes(hits, _settings);
-            if (callAlert && CallAlertEnabled)
+            bool playedCallAlert = callAlert && CallAlertEnabled;
+            if (playedCallAlert)
                 _callAlert.Play(CallAlertSoundPath);
-            // Wanted audio is independent of "call my callsign" — always play when armed.
+            // Wanted audio is independent and uses its own built-in wanted-alert.wav chime.
             if (wantedAlert && WantedAlertEnabled)
             {
-                string wav = !string.IsNullOrWhiteSpace(WantedAlertSoundPath)
-                    ? WantedAlertSoundPath
-                    : CallAlertSoundPath;
-                _callAlert.Play(wav);
+                string wav = WantedAlertSoundPath;
+                if (playedCallAlert)
+                {
+                    // Let call-alert finish first so SoundPlayer doesn't cut it off.
+                    _ = Task.Delay(450).ContinueWith(_ => _wantedAlert.Play(wav));
+                }
+                else
+                {
+                    _wantedAlert.Play(wav);
+                }
             }
             if (wantedAlert && !string.IsNullOrWhiteSpace(wantedReason))
                 Status = $"★ Wanted {wantedReason}";
@@ -4214,6 +4300,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _capture.Dispose();
         _playback.Dispose();
         _callAlert.Dispose();
+        _wantedAlert.Dispose();
         _external.Dispose();
         // Wait briefly so CAT PTT-off completes before the process exits (prevents latched TX in HRD/rigctld).
         try { Task.Run(async () => await _cat.DisposeAsync().ConfigureAwait(false)).Wait(2000); }

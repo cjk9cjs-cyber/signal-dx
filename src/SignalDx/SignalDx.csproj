@@ -9,8 +9,8 @@
     <AssemblyName>SignalDx</AssemblyName>
     <ApplicationTitle>Signal DX</ApplicationTitle>
     <ApplicationIcon>Assets\SignalDx.ico</ApplicationIcon>
-    <Version>2.13.1</Version>
-    <InformationalVersion>2.13.1</InformationalVersion>
+    <Version>2.13.3</Version>
+    <InformationalVersion>2.13.3</InformationalVersion>
     <Copyright>Copyright © 2026 CJ Schmit — K9CJS</Copyright>
     <Authors>CJ Schmit — K9CJS</Authors>
     <Company>K9CJS</Company>
@@ -25,6 +25,9 @@
     <Resource Include="Assets\SignalDx.png" />
     <Resource Include="Assets\Flags\*.png" />
     <Content Include="Assets\call-alert.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\wanted-alert.wav">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\docs\HOWTO.md" Link="Docs\HOWTO.md">

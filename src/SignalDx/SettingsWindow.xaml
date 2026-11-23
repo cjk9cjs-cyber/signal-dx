@@ -370,9 +370,13 @@
                 <CheckBox Content="Play sound when a station calls my callsign"
                           IsChecked="{Binding CallAlertEnabled}" Margin="0,14,0,6"/>
                 <DockPanel Margin="0,0,0,0">
-                  <Label Content="Alert WAV" Width="80" VerticalAlignment="Center"/>
+                  <Label Content="Alert sound" Width="88" VerticalAlignment="Center"/>
+                  <Button DockPanel.Dock="Right" Content="Reset" Command="{Binding ClearCallAlertSoundCommand}" Margin="6,0,0,0"
+                          ToolTip="Clear custom file and use built-in call-alert.wav"/>
+                  <Button DockPanel.Dock="Right" Content="Test" Command="{Binding TestCallAlertCommand}" Margin="6,0,0,0"/>
+                  <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseCallAlertSoundCommand}" Margin="6,0,0,0"/>
                   <TextBox Text="{Binding CallAlertSoundPath, UpdateSourceTrigger=PropertyChanged}"
-                           ToolTip="Leave blank for the built-in call-alert.wav"/>
+                           ToolTip="Choose a .wav / .mp3 file, or leave blank for the built-in call-alert.wav"/>
                 </DockPanel>
               </StackPanel>
             </Border>
@@ -394,9 +398,13 @@
                 <CheckBox Content="CQ only (alert when they call out, not every decode)"
                           IsChecked="{Binding WantedAlertCqOnly}" Margin="0,0,0,8"/>
                 <DockPanel Margin="0,0,0,8">
-                  <Label Content="Wanted WAV" Width="100" VerticalAlignment="Center"/>
+                  <Label Content="Wanted sound" Width="100" VerticalAlignment="Center"/>
+                  <Button DockPanel.Dock="Right" Content="Reset" Command="{Binding ClearWantedAlertSoundCommand}" Margin="6,0,0,0"
+                          ToolTip="Clear custom file and use built-in wanted-alert.wav"/>
+                  <Button DockPanel.Dock="Right" Content="Test" Command="{Binding TestWantedAlertCommand}" Margin="6,0,0,0"/>
+                  <Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseWantedAlertSoundCommand}" Margin="6,0,0,0"/>
                   <TextBox Text="{Binding WantedAlertSoundPath, UpdateSourceTrigger=PropertyChanged}"
-                           ToolTip="Leave blank to use the Call alert WAV / built-in call-alert.wav"/>
+                           ToolTip="Choose a .wav / .mp3 file, or leave blank for the built-in wanted-alert.wav (distinct 3-note chime)"/>
                 </DockPanel>
                 <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                            Text="Matches the transmitting station’s call, US/CA state, or country. Plays an audio alert and highlights the row in red in Band Activity / RX Frequency."/>
