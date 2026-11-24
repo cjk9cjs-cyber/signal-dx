@@ -196,7 +196,6 @@ public sealed class WaterfallControl : FrameworkElement
         bool slotBoundary = _lastSlotIndex is long prev && prev != slot;
         _lastSlotIndex = slot;
         AgeTimeMarks();
-        AgeCallSigns();
 
         ScrollUp();
         WriteColumn(_height - 1, _display);
@@ -216,10 +215,7 @@ public sealed class WaterfallControl : FrameworkElement
     long SlotIndex(DateTime local) =>
         local.Ticks / (TimeSpan.TicksPerSecond * (long)_slotSeconds);
 
-    /// <summary>
-    /// Pin a decoded call to the trace it came from: the row where its slot started,
-    /// so the label scrolls up with the signal instead of staying at a fixed screen position.
-    /// </summary>
+    /// <summary>Record a decoded call at its audio frequency for the slot it was heard in.</summary>
     public void AddCallSign(string call, int hz, DateTime slotUtc, bool highlight)
     {
         if (!Dispatcher.CheckAccess())
@@ -229,21 +225,7 @@ public sealed class WaterfallControl : FrameworkElement
         }
         if (!_showCallSigns || _wsprDisplay || string.IsNullOrWhiteSpace(call)) return;
 
-        DateTime decodeLocal = slotUtc.ToLocalTime();
-        int markIndex = -1;
-        double bestSec = double.MaxValue;
-        for (int i = 0; i < _timeMarks.Count; i++)
-        {
-            double dSec = Math.Abs((_timeMarks[i].SlotLocal - decodeLocal).TotalSeconds);
-            if (dSec < bestSec)
-            {
-                bestSec = dSec;
-                markIndex = i;
-            }
-        }
-        if (markIndex < 0 || bestSec > _slotSeconds) return;
-
-        var (ageRows, slotLocal) = _timeMarks[markIndex];
+        DateTime slotLocal = AlignToSlot(slotUtc.ToLocalTime());
         string text = call.Trim().ToUpperInvariant();
         if (_callSigns.Any(c => c.SlotLocal == slotLocal && c.Call == text)) return;
 
@@ -252,23 +234,11 @@ public sealed class WaterfallControl : FrameworkElement
             Call = text,
             Hz = hz,
             SlotLocal = slotLocal,
-            Highlight = highlight,
-            AgeRows = ageRows
+            Highlight = highlight
         });
         if (_callSigns.Count > MaxCallSignMarks)
             _callSigns.RemoveAt(0);
         InvalidateVisual();
-    }
-
-    void AgeCallSigns()
-    {
-        for (int i = _callSigns.Count - 1; i >= 0; i--)
-        {
-            var mark = _callSigns[i];
-            mark.AgeRows++;
-            if (mark.AgeRows >= _height)
-                _callSigns.RemoveAt(i);
-        }
     }
 
     DateTime AlignToSlot(DateTime local)
@@ -360,11 +330,6 @@ public sealed class WaterfallControl : FrameworkElement
         {
             if (_timeMarks[i].AgeRows >= _height)
                 _timeMarks.RemoveAt(i);
-        }
-        for (int i = _callSigns.Count - 1; i >= 0; i--)
-        {
-            if (_callSigns[i].AgeRows >= _height)
-                _callSigns.RemoveAt(i);
         }
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
     }
@@ -578,22 +543,32 @@ public sealed class WaterfallControl : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// Call signs pinned along the bottom edge at their audio frequency. Only the two most recent
+    /// decode slots are shown; the older one is dimmed.
+    /// </summary>
     void DrawCallSigns(DrawingContext dc, double wfH)
     {
-        if (!_showCallSigns || _callSigns.Count == 0 || _height <= 1 || ActualWidth <= 0) return;
+        if (!_showCallSigns || _callSigns.Count == 0 || ActualWidth <= 0 || wfH < 20) return;
+
+        var recentSlots = _callSigns
+            .Select(m => m.SlotLocal)
+            .Distinct()
+            .OrderByDescending(s => s)
+            .Take(2)
+            .ToList();
+        if (recentSlots.Count == 0) return;
 
         double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var placed = new List<Rect>();
-        var ordered = _callSigns
+        var visible = _callSigns
+            .Where(m => recentSlots.Contains(m.SlotLocal))
             .OrderByDescending(m => m.Highlight)
-            .ThenBy(m => m.AgeRows);
+            .ThenByDescending(m => m.SlotLocal);
 
-        foreach (var mark in ordered)
+        foreach (var mark in visible)
         {
-            int bitmapY = _height - 1 - mark.AgeRows;
-            if (bitmapY < 0 || bitmapY >= _height) continue;
-
-            byte alpha = CallSignAlpha(mark.AgeRows);
+            byte alpha = recentSlots[0] == mark.SlotLocal ? (byte)255 : (byte)150;
             Color baseColor = mark.Highlight ? CallSignHighlightColor : CallSignTextColor;
             var textBrush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
             textBrush.Freeze();
@@ -606,9 +581,8 @@ public sealed class WaterfallControl : FrameworkElement
                 textBrush,
                 dip);
 
-            double rowY = (bitmapY + 0.5) / _height * wfH;
             double lx = Math.Clamp(HzToX(mark.Hz) - ft.Width / 2, 2, Math.Max(2, ActualWidth - ft.Width - 2));
-            double ly = Math.Max(0, rowY - ft.Height - 2);
+            double ly = wfH - ft.Height - 4;
             var box = new Rect(lx - 3, ly - 1, ft.Width + 6, ft.Height + 2);
             if (placed.Any(r => r.IntersectsWith(box))) continue;
             placed.Add(box);
@@ -618,14 +592,6 @@ public sealed class WaterfallControl : FrameworkElement
             dc.DrawRectangle(shadow, null, box);
             dc.DrawText(ft, new Point(lx, ly));
         }
-    }
-
-    byte CallSignAlpha(int ageRows)
-    {
-        double t = ageRows / (double)_height;
-        if (t <= 0.7) return 255;
-        double k = Math.Clamp((t - 0.7) / 0.3, 0, 1);
-        return (byte)Math.Round(255 - k * 185);
     }
 
     void DrawFrequencyScaleBar(DrawingContext dc)
@@ -887,7 +853,6 @@ public sealed class WaterfallControl : FrameworkElement
         public required int Hz { get; init; }
         public required DateTime SlotLocal { get; init; }
         public required bool Highlight { get; init; }
-        public int AgeRows { get; set; }
     }
 
     void FillBackground(bool resetTimeMarks = true)

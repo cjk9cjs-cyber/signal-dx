@@ -363,7 +363,7 @@
                           IsChecked="{Binding LockTxToRx}" Margin="0,14,0,0"/>
                 <CheckBox Content="Show call signs on the waterfall"
                           IsChecked="{Binding WaterfallCallSigns}" Margin="0,8,0,0"
-                          ToolTip="Each decoded station's call is shown at its frequency and scrolls with its trace. Calls to you, wanted calls, and your active QSO partner are green."/>
+                          ToolTip="Each decoded station's call is shown along the bottom of the waterfall at its frequency, for the last two decode slots. Calls to you, wanted calls, and your active QSO partner are green."/>
                 <CheckBox Content="Play sound when a station calls my callsign"
                           IsChecked="{Binding CallAlertEnabled}" Margin="0,14,0,6"/>
                 <DockPanel Margin="0,0,0,0">
