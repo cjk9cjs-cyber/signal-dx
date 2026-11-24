@@ -262,6 +262,31 @@ public partial class MainWindow : Window
             _vm.EnableTxForStation(hit);
     }
 
+    void Dial_OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TextBox tb) return;
+        tb.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        tb.SelectAll();
+        e.Handled = true;
+    }
+
+    int _bandPresetIndexOnOpen = -1;
+
+    void BandPreset_OnDropDownOpened(object? sender, EventArgs e)
+    {
+        if (sender is ComboBox combo)
+            _bandPresetIndexOnOpen = combo.SelectedIndex;
+    }
+
+    // Apply only on an operator pick; list rebuilds from CAT polls also change SelectedIndex.
+    void BandPreset_OnDropDownClosed(object? sender, EventArgs e)
+    {
+        if (sender is not ComboBox combo) return;
+        if (combo.SelectedIndex < 0 || combo.SelectedIndex == _bandPresetIndexOnOpen) return;
+        if (_vm.ApplyBandCommand.CanExecute(null))
+            _vm.ApplyBandCommand.Execute(null);
+    }
+
     void ManualDxCall_OnKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;

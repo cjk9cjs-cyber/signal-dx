@@ -124,7 +124,9 @@
             <Label Content="Band" Margin="8,0,0,0"/>
             <TextBox Width="50" Text="{Binding Band, UpdateSourceTrigger=PropertyChanged}"/>
             <Label Content="Dial" Margin="8,0,0,0"/>
-            <TextBox Width="90" Text="{Binding DialMhz, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBox Width="90" Text="{Binding DialMhz, UpdateSourceTrigger=LostFocus}"
+                     KeyDown="Dial_OnKeyDown"
+                     ToolTip="Dial in MHz — type a frequency and press Enter to tune the radio (CAT)"/>
             <Label Content="MHz" Margin="2,0,0,0"/>
             <Label Content="Power" Margin="8,0,0,0"
                    Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
@@ -178,7 +180,9 @@
                      VerticalAlignment="Center" Width="110"/>
           <ComboBox Width="200" Margin="12,0,0,0" ItemsSource="{Binding BandPresets}"
                     SelectedIndex="{Binding SelectedBandPresetIndex}"
-                    ToolTip="Pick a dial, then Apply band. Startup keeps your last saved band."/>
+                    DropDownOpened="BandPreset_OnDropDownOpened"
+                    DropDownClosed="BandPreset_OnDropDownClosed"
+                    ToolTip="Pick a band/dial — applied immediately (and sent to the radio when CAT is connected)."/>
           <Button Content="Apply band" Command="{Binding ApplyBandCommand}" Margin="6,0,0,0"
                   ToolTip="Set Band / Dial (and CAT follow-dial) from the selected preset"/>
           <Button Content="CQ" Command="{Binding StartCqCommand}" Style="{StaticResource TxButton}" Margin="12,0,0,0"

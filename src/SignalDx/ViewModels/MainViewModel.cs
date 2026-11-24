@@ -56,7 +56,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly DispatcherTimer _spectrumTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
     readonly DispatcherTimer _heartbeat = new() { Interval = TimeSpan.FromSeconds(15) };
     readonly DispatcherTimer _settingsPersistTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
-    readonly DispatcherTimer _dialPushTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
+    readonly DispatcherTimer _dialPushTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     bool _dialFromProgram;
 
     StationSettings _settings;
@@ -2495,7 +2495,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         long hz = (long)Math.Round(DialMhz * 1_000_000d);
         if (hz <= 0 || DialMhz is < 0.1 or > 2000)
+        {
+            Status = $"Dial {DialMhz} MHz looks wrong — not sent to the radio.";
             return;
+        }
         if (_cat.LastFrequencyHz is long current && Math.Abs(current - hz) < 50)
             return;
 
