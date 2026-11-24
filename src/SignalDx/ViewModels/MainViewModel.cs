@@ -56,6 +56,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly DispatcherTimer _spectrumTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
     readonly DispatcherTimer _heartbeat = new() { Interval = TimeSpan.FromSeconds(15) };
     readonly DispatcherTimer _settingsPersistTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    readonly DispatcherTimer _dialPushTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
+    bool _dialFromProgram;
 
     StationSettings _settings;
     string _dxCall = "";
@@ -286,6 +288,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settingsPersistTimer.Stop();
             SaveSettingsNow();
         };
+        _dialPushTimer.Tick += (_, _) => OnDialPushTimer();
         _clock.Start();
         _spectrumTimer.Start();
         _heartbeat.Start();
@@ -926,6 +929,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
             Raise();
             RefreshCurrentFreqText();
+            if (!_dialFromProgram)
+                ScheduleDialPushToRadio();
             // Only clear Band Activity / RX when hopping bands (e.g. 10m → 20m), not VFO tweaks.
             if (bandChanged)
                 ClearActivityPanesForDialChange();
@@ -1953,6 +1958,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     Raise(nameof(SelectedCatBackend));
                     Raise(nameof(CatHost));
                 }
+                else
+                {
+                    NormalizeCatBackendForModel();
+                }
             }
             Raise();
             Raise(nameof(HamlibModelId));
@@ -2358,10 +2367,39 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Status = "Monitor stopped.";
     }
 
+    /// <summary>
+    /// HRD is only valid with the virtual model 9999. A real Hamlib model (e.g. FT-710 #1049) left over
+    /// from an earlier HRD setup would otherwise keep talking to HRD instead of rigctld.
+    /// </summary>
+    bool NormalizeCatBackendForModel()
+    {
+        bool changed = false;
+        if (_settings.HamlibModelId == HrdCatController.ModelId)
+        {
+            changed = _settings.CatBackend != CatBackend.HamRadioDeluxe;
+            _settings.CatBackend = CatBackend.HamRadioDeluxe;
+        }
+        else if (_settings.CatBackend == CatBackend.HamRadioDeluxe)
+        {
+            _settings.CatBackend = CatBackend.HamlibTcp;
+            if (string.Equals(_settings.CatHost, "localhost", StringComparison.OrdinalIgnoreCase))
+                _settings.CatHost = "127.0.0.1";
+            Raise(nameof(CatHost));
+            changed = true;
+        }
+
+        if (changed)
+        {
+            Raise(nameof(SelectedCatBackend));
+            Raise(nameof(IsHrdSelected));
+        }
+        return changed;
+    }
+
     async Task ConnectCatAsync()
     {
-        if (_settings.HamlibModelId == HrdCatController.ModelId)
-            _settings.CatBackend = CatBackend.HamRadioDeluxe;
+        if (NormalizeCatBackendForModel() && _settings.CatBackend == CatBackend.HamlibTcp)
+            Status = "Backend switched from HRD to Hamlib to match the selected radio model.";
 
         bool isHrd = _settings.CatBackend == CatBackend.HamRadioDeluxe
                      || _settings.HamlibModelId == HrdCatController.ModelId;
@@ -2373,6 +2411,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CatStatus = _cat.IsConnected
             ? (isHrd ? $"HRD OK ({_cat.BackendName})" : $"Hamlib OK ({_cat.BackendName})")
             : CatStatus;
+        if (!_cat.IsConnected && !isHrd && _settings.CatBackend == CatBackend.HamlibTcp && !_cat.IsRigctldManaged)
+            Status = "Hamlib: could not reach rigctld — click Start rigctld (Settings → Hamlib / CAT) first, then Connect.";
         Raise(nameof(SelectedCatBackend));
         Raise(nameof(IsHrdSelected));
         if (_cat.IsConnected)
@@ -2430,8 +2470,46 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Status = $"Found Hamlib: {path} ({HamlibCatalog.GetModels(path).Count} models)";
     }
 
+    void ScheduleDialPushToRadio()
+    {
+        _dialPushTimer.Stop();
+        _dialPushTimer.Start();
+    }
+
+    void OnDialPushTimer()
+    {
+        _dialPushTimer.Stop();
+        if (_disposed) return;
+
+        if (!_cat.IsConnected)
+        {
+            Status = "Dial changed in app only — CAT is not connected, so the radio was not changed.";
+            return;
+        }
+
+        if (IsTransmitting || IsTuning || RigPtt)
+        {
+            Status = "Dial changed in app only — not sent to the radio while transmitting.";
+            return;
+        }
+
+        long hz = (long)Math.Round(DialMhz * 1_000_000d);
+        if (hz <= 0 || DialMhz is < 0.1 or > 2000)
+            return;
+        if (_cat.LastFrequencyHz is long current && Math.Abs(current - hz) < 50)
+            return;
+
+        _ = SetRigFreqAsync();
+    }
+
     async Task SetRigFreqAsync()
     {
+        if (!_cat.IsConnected)
+        {
+            Status = "CAT not connected — Settings → Hamlib / CAT: Start rigctld, then Connect.";
+            return;
+        }
+
         try
         {
             await _cat.SetDialMhzAsync(DialMhz);
@@ -2504,7 +2582,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         _lastAppliedDialHz = hz;
 
-        DialMhz = mhz; // also updates Band via BandPlan
+        _dialFromProgram = true;
+        try { DialMhz = mhz; } // also updates Band via BandPlan
+        finally { _dialFromProgram = false; }
         RebuildBandPresetList();
         SaveSettingsNow();
         Status = $"Band from radio: {Band} @ {mhz:0.0000} MHz ({hz} Hz)";
@@ -2633,7 +2713,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(TxHzToolTip));
         CommandManager.InvalidateRequerySuggested();
         Band = p.Band;
-        DialMhz = p.DialMhz;
+        _dialFromProgram = true;
+        try { DialMhz = p.DialMhz; }
+        finally { _dialFromProgram = false; }
+        _dialPushTimer.Stop();
         if (_cat.IsConnected)
             _ = PushBandToRadioAsync(p);
         else
@@ -4508,6 +4591,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _spectrumTimer.Stop();
         _heartbeat.Stop();
         _settingsPersistTimer.Stop();
+        _dialPushTimer.Stop();
         RememberAudioHzForMode(IsWsprMode);
         // Always flush markers / mode memory — Closing may be skipped on force-kill rebuilds.
         try { SaveSettingsNow(); } catch { /* ignore */ }
