@@ -148,6 +148,7 @@ Leaving WSPR turns **Enable TX** off and clears beacon free-text so FT8 does not
 - FT8/FT4: ~200–3000 Hz, gated signal traces, 15 s (or 7.5 s) time marks.
 - WSPR-2: narrow 1400–1600 Hz passband, soft weak-signal traces, 2-minute marks.
 - Palettes under **Colors** / Settings → Display.
+- FT8/FT4 call signs float on the waterfall at each decode's frequency and scroll with the trace (green = calls to you, wanted, or your active QSO partner). Turn off under Settings → Display → **Show call signs on the waterfall**.
 - Markers persist across mode changes and app restarts.
 
 ### Auto sequence

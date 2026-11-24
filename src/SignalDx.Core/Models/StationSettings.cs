@@ -52,6 +52,7 @@ public sealed class StationSettings
     /// <summary>WASAPI endpoint ID for playback.</summary>
     public string OutputDeviceId { get; set; } = "";
     public string WaterfallPalette { get; set; } = "Classic";
+    public bool WaterfallCallSigns { get; set; } = true;
     public bool LockTxToRx { get; set; }
 
     // CAT / Hamlib

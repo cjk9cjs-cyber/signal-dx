@@ -39,6 +39,11 @@ public sealed class WaterfallControl : FrameworkElement
     float _signalCeil = -25;
     long? _lastSlotIndex;
     readonly List<(int AgeRows, DateTime SlotLocal)> _timeMarks = new();
+    readonly List<CallSignMark> _callSigns = new();
+    const int MaxCallSignMarks = 400;
+    static readonly Color CallSignTextColor = Color.FromRgb(0xE7, 0xEE, 0xF8);
+    static readonly Color CallSignHighlightColor = Color.FromRgb(0x6F, 0xE0, 0x8A);
+    bool _showCallSigns = true;
 
     bool _dragging;
     bool _dragSetsTx;
@@ -152,6 +157,18 @@ public sealed class WaterfallControl : FrameworkElement
         }
     }
 
+    public bool ShowCallSigns
+    {
+        get => _showCallSigns;
+        set
+        {
+            if (_showCallSigns == value) return;
+            _showCallSigns = value;
+            if (!value) _callSigns.Clear();
+            InvalidateVisual();
+        }
+    }
+
     float ActiveGateDb => _wsprDisplay ? WsprSignalGateDb : SignalGateDb;
 
     /// <summary>Clear history and AGC when switching modes / bands.</summary>
@@ -179,6 +196,7 @@ public sealed class WaterfallControl : FrameworkElement
         bool slotBoundary = _lastSlotIndex is long prev && prev != slot;
         _lastSlotIndex = slot;
         AgeTimeMarks();
+        AgeCallSigns();
 
         ScrollUp();
         WriteColumn(_height - 1, _display);
@@ -197,6 +215,61 @@ public sealed class WaterfallControl : FrameworkElement
 
     long SlotIndex(DateTime local) =>
         local.Ticks / (TimeSpan.TicksPerSecond * (long)_slotSeconds);
+
+    /// <summary>
+    /// Pin a decoded call to the trace it came from: the row where its slot started,
+    /// so the label scrolls up with the signal instead of staying at a fixed screen position.
+    /// </summary>
+    public void AddCallSign(string call, int hz, DateTime slotUtc, bool highlight)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => AddCallSign(call, hz, slotUtc, highlight), DispatcherPriority.Render);
+            return;
+        }
+        if (!_showCallSigns || _wsprDisplay || string.IsNullOrWhiteSpace(call)) return;
+
+        DateTime decodeLocal = slotUtc.ToLocalTime();
+        int markIndex = -1;
+        double bestSec = double.MaxValue;
+        for (int i = 0; i < _timeMarks.Count; i++)
+        {
+            double dSec = Math.Abs((_timeMarks[i].SlotLocal - decodeLocal).TotalSeconds);
+            if (dSec < bestSec)
+            {
+                bestSec = dSec;
+                markIndex = i;
+            }
+        }
+        if (markIndex < 0 || bestSec > _slotSeconds) return;
+
+        var (ageRows, slotLocal) = _timeMarks[markIndex];
+        string text = call.Trim().ToUpperInvariant();
+        if (_callSigns.Any(c => c.SlotLocal == slotLocal && c.Call == text)) return;
+
+        _callSigns.Add(new CallSignMark
+        {
+            Call = text,
+            Hz = hz,
+            SlotLocal = slotLocal,
+            Highlight = highlight,
+            AgeRows = ageRows
+        });
+        if (_callSigns.Count > MaxCallSignMarks)
+            _callSigns.RemoveAt(0);
+        InvalidateVisual();
+    }
+
+    void AgeCallSigns()
+    {
+        for (int i = _callSigns.Count - 1; i >= 0; i--)
+        {
+            var mark = _callSigns[i];
+            mark.AgeRows++;
+            if (mark.AgeRows >= _height)
+                _callSigns.RemoveAt(i);
+        }
+    }
 
     DateTime AlignToSlot(DateTime local)
     {
@@ -223,6 +296,7 @@ public sealed class WaterfallControl : FrameworkElement
     void ClearTimeMarks()
     {
         _timeMarks.Clear();
+        _callSigns.Clear();
         _lastSlotIndex = null;
     }
 
@@ -286,6 +360,11 @@ public sealed class WaterfallControl : FrameworkElement
         {
             if (_timeMarks[i].AgeRows >= _height)
                 _timeMarks.RemoveAt(i);
+        }
+        for (int i = _callSigns.Count - 1; i >= 0; i--)
+        {
+            if (_callSigns[i].AgeRows >= _height)
+                _callSigns.RemoveAt(i);
         }
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
     }
@@ -426,6 +505,7 @@ public sealed class WaterfallControl : FrameworkElement
         dc.DrawRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, ActualWidth, wfH));
         dc.DrawImage(_bitmap, new Rect(0, 0, ActualWidth, wfH));
         DrawTimeMarkLabels(dc, wfH);
+        DrawCallSigns(dc, wfH);
 
         double span = MaxHz - MinHz;
         if (span <= 0 || ActualWidth <= 0) return;
@@ -496,6 +576,56 @@ public sealed class WaterfallControl : FrameworkElement
             dc.DrawRectangle(shadow, null, new Rect(3, ty - 1, ft.Width + 6, ft.Height + 2));
             dc.DrawText(ft, new Point(6, ty));
         }
+    }
+
+    void DrawCallSigns(DrawingContext dc, double wfH)
+    {
+        if (!_showCallSigns || _callSigns.Count == 0 || _height <= 1 || ActualWidth <= 0) return;
+
+        double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var placed = new List<Rect>();
+        var ordered = _callSigns
+            .OrderByDescending(m => m.Highlight)
+            .ThenBy(m => m.AgeRows);
+
+        foreach (var mark in ordered)
+        {
+            int bitmapY = _height - 1 - mark.AgeRows;
+            if (bitmapY < 0 || bitmapY >= _height) continue;
+
+            byte alpha = CallSignAlpha(mark.AgeRows);
+            Color baseColor = mark.Highlight ? CallSignHighlightColor : CallSignTextColor;
+            var textBrush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
+            textBrush.Freeze();
+            var ft = new FormattedText(
+                mark.Call,
+                System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Cascadia Mono"),
+                11,
+                textBrush,
+                dip);
+
+            double rowY = (bitmapY + 0.5) / _height * wfH;
+            double lx = Math.Clamp(HzToX(mark.Hz) - ft.Width / 2, 2, Math.Max(2, ActualWidth - ft.Width - 2));
+            double ly = Math.Max(0, rowY - ft.Height - 2);
+            var box = new Rect(lx - 3, ly - 1, ft.Width + 6, ft.Height + 2);
+            if (placed.Any(r => r.IntersectsWith(box))) continue;
+            placed.Add(box);
+
+            var shadow = new SolidColorBrush(Color.FromArgb((byte)(alpha * 160 / 255), 0x05, 0x08, 0x10));
+            shadow.Freeze();
+            dc.DrawRectangle(shadow, null, box);
+            dc.DrawText(ft, new Point(lx, ly));
+        }
+    }
+
+    byte CallSignAlpha(int ageRows)
+    {
+        double t = ageRows / (double)_height;
+        if (t <= 0.7) return 255;
+        double k = Math.Clamp((t - 0.7) / 0.3, 0, 1);
+        return (byte)Math.Round(255 - k * 185);
     }
 
     void DrawFrequencyScaleBar(DrawingContext dc)
@@ -749,6 +879,15 @@ public sealed class WaterfallControl : FrameworkElement
             _pixels[i + 2] = c.R;
             _pixels[i + 3] = 255;
         }
+    }
+
+    sealed class CallSignMark
+    {
+        public required string Call { get; init; }
+        public required int Hz { get; init; }
+        public required DateTime SlotLocal { get; init; }
+        public required bool Highlight { get; init; }
+        public int AgeRows { get; set; }
     }
 
     void FillBackground(bool resetTimeMarks = true)

@@ -1236,6 +1236,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    public bool WaterfallCallSigns
+    {
+        get => _settings.WaterfallCallSigns;
+        set
+        {
+            _settings.WaterfallCallSigns = value;
+            if (_waterfall is not null)
+                _waterfall.ShowCallSigns = value;
+            Raise();
+        }
+    }
+
     public string TxPower
     {
         get => _settings.TxPower;
@@ -2194,6 +2206,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _waterfall.LockTxToRx = LockTxToRx;
         _waterfall.SampleRate = AudioCaptureService.SampleRate;
         _waterfall.FftSize = _spectrum.FftSize;
+        _waterfall.ShowCallSigns = WaterfallCallSigns;
         ApplyModeToWaterfall();
         ApplyWaterfallPalette();
         _waterfall.FrequencyPicked += OnWaterfallFrequencyPicked;
@@ -3085,6 +3098,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 string? want = _wanted.Match(hit);
                 hit.IsWanted = want is not null;
                 hit.IsUnverified = IsUnverifiedDecode(hit);
+                if (!string.IsNullOrWhiteSpace(hit.DxCall))
+                    _waterfall?.AddCallSign(hit.DxCall, hit.Hz, hit.Utc, hit.IsToMe || hit.IsWanted || hit.IsWorking);
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);
