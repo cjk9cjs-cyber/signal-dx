@@ -53,6 +53,47 @@
         </Style>
       </TabControl.Resources>
 
+      <!-- Audio -->
+      <TabItem Header="Audio">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12">
+              <StackPanel>
+                <DockPanel Margin="0,0,0,8">
+                  <TextBlock Text="Sound devices" FontWeight="SemiBold"
+                             Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                  <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshAudioDevicesCommand}"
+                          ToolTip="Rescan Windows capture and playback devices"/>
+                </DockPanel>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+                  <Label Grid.Row="0" Grid.Column="0" Content="Input"/>
+                  <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
+                            ItemsSource="{Binding InputDevices}"
+                            SelectedItem="{Binding SelectedInputDevice, Mode=TwoWay}"
+                            ToolTip="Radio audio into the PC (USB codec, VAC, or mic). Saved as soon as you pick one."/>
+                  <Label Grid.Row="1" Grid.Column="0" Content="Output"/>
+                  <ComboBox Grid.Row="1" Grid.Column="1"
+                            ItemsSource="{Binding OutputDevices}"
+                            SelectedItem="{Binding SelectedOutputDevice, Mode=TwoWay}"
+                            ToolTip="Audio back to the radio (same interface TX path). Saved as soon as you pick one."/>
+                </Grid>
+                <TextBlock Margin="0,10,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Input is the radio audio into the PC. Output is the audio sent back to the radio. After you pick them, click Monitor on the main window and watch the RX level bar — aim for mid-scale."/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <!-- Hamlib / CAT -->
       <TabItem Header="Hamlib / CAT">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">

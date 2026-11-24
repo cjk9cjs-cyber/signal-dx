@@ -212,6 +212,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AddWantedCommand = new RelayCommand(AddWantedItem, () => !string.IsNullOrWhiteSpace(NewWantedValue));
         RemoveWantedCommand = new RelayCommand(p => RemoveWantedItem(p as WantedEntry));
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
+        RefreshAudioDevicesCommand = new RelayCommand(() =>
+        {
+            ReloadAudioDeviceLists(save: false);
+            RestoreAudioDeviceSelectionUi();
+        });
         RefreshHamlibModelsCommand = new RelayCommand(() => ReloadHamlibModels(forceRefresh: true));
         StartRigctldCommand = new RelayCommand(StartRigctld);
         StopRigctldCommand = new RelayCommand(() => _cat.StopRigctld());
@@ -381,6 +386,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand AddWantedCommand { get; }
     public ICommand RemoveWantedCommand { get; }
     public ICommand RefreshPortsCommand { get; }
+    public ICommand RefreshAudioDevicesCommand { get; }
     public ICommand RefreshHamlibModelsCommand { get; }
     public ICommand StartRigctldCommand { get; }
     public ICommand StopRigctldCommand { get; }

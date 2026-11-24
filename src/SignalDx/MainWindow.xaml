@@ -270,16 +270,6 @@
             <ComboBox Width="100" ItemsSource="{Binding WaterfallPalettes}"
                       SelectedItem="{Binding SelectedWaterfallPalette}"/>
           </StackPanel>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Label Content="In"/>
-            <ComboBox Width="220" ItemsSource="{Binding InputDevices}"
-                      SelectedItem="{Binding SelectedInputDevice, Mode=TwoWay}"
-                      ToolTip="{Binding SelectedInputDevice}"/>
-            <Label Content="Out" Margin="8,0,0,0"/>
-            <ComboBox Width="220" ItemsSource="{Binding OutputDevices}"
-                      SelectedItem="{Binding SelectedOutputDevice, Mode=TwoWay}"
-                      ToolTip="{Binding SelectedOutputDevice}"/>
-          </StackPanel>
         </DockPanel>
       </Border>
 

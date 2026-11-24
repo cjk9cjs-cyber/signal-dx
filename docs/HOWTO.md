@@ -35,10 +35,11 @@ Do these in order before you go on the air.
 
 ### B. Audio (RX and TX)
 
-1. Choose **In** = radio audio into the PC (USB codec, VAC, or mic).
-2. Choose **Out** = audio back to the radio (same interface TX path).
-3. Click **Monitor**. Watch the RX level bar — aim for roughly mid-scale (not pegged).
-4. Adjust radio AF / VAC / Windows recording level until the bar is healthy.
+1. Open **Settings → Audio**.
+2. Choose **Input** = radio audio into the PC (USB codec, VAC, or mic).
+3. Choose **Output** = audio back to the radio (same interface TX path). Use **Refresh** if a device was just plugged in.
+4. Click **Monitor**. Watch the RX level bar — aim for roughly mid-scale (not pegged).
+5. Adjust radio AF / VAC / Windows recording level until the bar is healthy.
 
 ### C. Decoder (FT8/FT4)
 
@@ -48,7 +49,7 @@ Do these in order before you go on the air.
 4. Keep **Monitor** running on the main window.
 5. After a few UTC slots, **Band Activity** should fill with decodes.
 
-If Band Activity stays empty: confirm Monitor is on, In device is correct, and the `jtdxjt9` path is valid.
+If Band Activity stays empty: confirm Monitor is on, Settings → Audio input is correct, and the `jtdxjt9` path is valid.
 
 ### D. CAT (radio control)
 
@@ -118,7 +119,7 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 | **DX / Grid / Rpt / Phase** | Working station and auto-seq phase |
 | **Monitor / Enable TX / Halt / Tune** | RX decode loop and TX arming |
 | **Auto seq / Call alert / Wanted alert / TX even** | Behavior toggles |
-| **In / Out** | Audio devices |
+| **Settings → Audio** | Input and output sound devices |
 | **Waterfall** | Live spectrum; click to set Rx/Tx; right-click / Shift for Tx-only variants |
 | **Band Activity** | All decodes (SNR, DT, Hz, distance, flag, country, state, message) |
 | **RX Frequency** | Decodes near your Rx/Tx markers and traffic to you |
@@ -207,7 +208,7 @@ On **Log QSO**, Signal DX can:
 ## 5. Typical on-air session
 
 1. Start Signal DX → set call/grid if needed.
-2. **Monitor** on → correct In/Out.
+2. **Monitor** on → correct Input/Output under **Settings → Audio**.
 3. CAT **Connect** (if used) → pick your **band preset**.
 4. Confirm decodes in Band Activity.
 5. Click waterfall for a clear Tx Hz.
@@ -221,7 +222,7 @@ On **Log QSO**, Signal DX can:
 
 | Symptom | Try this |
 |---------|----------|
-| No decodes | Monitor on; correct In device; JTDX path; wait for a full slot |
+| No decodes | Monitor on; correct Input device (Settings → Audio); JTDX path; wait for a full slot |
 | TX but radio silent | Out device; Drive %; radio USB/DATA input; PTT on TX; CAT connected |
 | Wrong sideband / no digi | CAT digi mode (DATA-U / PKTUSB); re-pick band preset; Settings → Set mode |
 | Enable TX was on at start | Fixed in 2.12.1+ — TX is session-only and starts off |
