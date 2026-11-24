@@ -197,9 +197,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenSettingsCommand = new RelayCommand(OpenSettings);
         ConnectCatCommand = new RelayCommand(() => _ = ConnectCatAsync());
         DisconnectCatCommand = new RelayCommand(() => _ = DisconnectCatAsync());
-        ApplyBandCommand = new RelayCommand(ApplySelectedBand);
         ExportAdifCommand = new RelayCommand(ExportAdif);
-        StartCqCommand = new RelayCommand(StartCq);
         WsprTxNextCommand = new RelayCommand(ArmWsprTxNext, () => IsWsprMode && !IsTransmitting);
         ResetSeqCommand = new RelayCommand(() =>
         {
@@ -373,9 +371,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand OpenSettingsCommand { get; }
     public ICommand ConnectCatCommand { get; }
     public ICommand DisconnectCatCommand { get; }
-    public ICommand ApplyBandCommand { get; }
     public ICommand ExportAdifCommand { get; }
-    public ICommand StartCqCommand { get; }
     public ICommand WsprTxNextCommand { get; }
     public ICommand ResetSeqCommand { get; }
     public ICommand ResetTxMacrosCommand { get; }
@@ -1884,8 +1880,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_selectedBandPresetIndex == value) return;
             _selectedBandPresetIndex = value;
             Raise();
-            // Band/dial are applied only via Apply band (or ApplySelectedBand) — never from
-            // ComboBox index changes during startup binding, which would wipe the saved band.
+            // Band/dial are applied only when the user picks from the preset dropdown
+            // (ApplySelectedBand) — never from ComboBox index changes during startup binding.
         }
     }
 
@@ -2694,7 +2690,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(SelectedBandPresetIndex));
     }
 
-    void ApplySelectedBand()
+    public void ApplySelectedBand()
     {
         if (_selectedBandPresetIndex < 0 || _selectedBandPresetIndex >= _bandPresetItems.Count)
             return;
@@ -2762,19 +2758,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             _forcingDigiMode = false;
         }
-    }
-
-    void StartCq()
-    {
-        if (IsWsprMode)
-        {
-            ArmWsprTxNext();
-            return;
-        }
-
-        ArmCqHold();
-        // Arm for the next matching period — do not key mid-slot (late TX is hard to complete QSOs with).
-        Status = $"CQ hold ON ({(TxEven ? "even" : "odd")}) → {FreeText}";
     }
 
     /// <summary>

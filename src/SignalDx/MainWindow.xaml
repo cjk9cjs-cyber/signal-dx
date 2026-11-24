@@ -183,11 +183,7 @@
                     DropDownOpened="BandPreset_OnDropDownOpened"
                     DropDownClosed="BandPreset_OnDropDownClosed"
                     ToolTip="Pick a band/dial — applied immediately (and sent to the radio when CAT is connected)."/>
-          <Button Content="Apply band" Command="{Binding ApplyBandCommand}" Margin="6,0,0,0"
-                  ToolTip="Set Band / Dial (and CAT follow-dial) from the selected preset"/>
-          <Button Content="CQ" Command="{Binding StartCqCommand}" Style="{StaticResource TxButton}" Margin="12,0,0,0"
-                  Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
-          <Button Content="Reset seq" Command="{Binding ResetSeqCommand}"
+          <Button Content="Reset seq" Command="{Binding ResetSeqCommand}" Margin="8,0,0,0"
                   Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
         </WrapPanel>
       </Grid>

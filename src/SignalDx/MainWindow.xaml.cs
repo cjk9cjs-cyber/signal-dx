@@ -283,8 +283,7 @@ public partial class MainWindow : Window
     {
         if (sender is not ComboBox combo) return;
         if (combo.SelectedIndex < 0 || combo.SelectedIndex == _bandPresetIndexOnOpen) return;
-        if (_vm.ApplyBandCommand.CanExecute(null))
-            _vm.ApplyBandCommand.Execute(null);
+        _vm.ApplySelectedBand();
     }
 
     void ManualDxCall_OnKeyDown(object sender, KeyEventArgs e)

@@ -163,7 +163,7 @@
                   <CheckBox Content="Auto-start rigctld" IsChecked="{Binding HamlibAutoStart}"/>
                   <CheckBox Content="PTT on TX" IsChecked="{Binding CatPttEnabled}"/>
                   <CheckBox Content="Follow dial" IsChecked="{Binding CatFollowDial}"
-                            ToolTip="Reserved for continuous dial sync. Apply band always sets the radio frequency when CAT is connected."/>
+                            ToolTip="Reserved for continuous dial sync. Picking a band preset always sets the radio frequency when CAT is connected."/>
                   <CheckBox Content="CAT RF power" IsChecked="{Binding CatRfPowerEnabled}" Margin="12,0,0,0"
                             ToolTip="Push Power (W) / Max watts as Hamlib RFPOWER on TX"/>
                   <Label Content="Max W" Margin="10,0,0,0"/>

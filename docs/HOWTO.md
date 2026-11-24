@@ -78,7 +78,7 @@ Useful CAT options:
 ### E. Band and mode
 
 1. Set **Mode** to **FT8** (or FT4 / WSPR2).
-2. Pick a **band preset** → **Apply band** (sets dial; pushes frequency/mode when CAT is connected).
+2. Pick a **band preset** from the dropdown (sets dial and pushes frequency/mode immediately when CAT is connected).
 3. Click the waterfall to set **Rx** / **Tx** audio Hz (orange = Tx, cyan = Rx). **Lock Tx=Rx** keeps them together.
 
 ### F. Logging (optional but recommended)
@@ -208,10 +208,10 @@ On **Log QSO**, Signal DX can:
 
 1. Start Signal DX → set call/grid if needed.
 2. **Monitor** on → correct In/Out.
-3. CAT **Connect** (if used) → **Apply band**.
+3. CAT **Connect** (if used) → pick your **band preset**.
 4. Confirm decodes in Band Activity.
 5. Click waterfall for a clear Tx Hz.
-6. **Enable TX** → **CQ** or double-click a caller.
+6. **Enable TX** → click a **CQ** macro (in TX Macros) or double-click a caller.
 7. Let **Auto seq** finish; log when prompted (or **Log QSO**).
 8. **Enable TX** off (or close the app) when done — TX is never restored armed on next launch.
 
@@ -223,7 +223,7 @@ On **Log QSO**, Signal DX can:
 |---------|----------|
 | No decodes | Monitor on; correct In device; JTDX path; wait for a full slot |
 | TX but radio silent | Out device; Drive %; radio USB/DATA input; PTT on TX; CAT connected |
-| Wrong sideband / no digi | CAT digi mode (DATA-U); Apply band again; Settings → Set mode |
+| Wrong sideband / no digi | CAT digi mode (DATA-U / PKTUSB); re-pick band preset; Settings → Set mode |
 | Enable TX was on at start | Fixed in 2.12.1+ — TX is session-only and starts off |
 | Markers jump after WSPR | FT8 and WSPR markers are stored separately (2.10+); set once per mode |
 | State label looks wrong | Set your Grid to 6 characters; state lines can fall inside a 4-character square |
