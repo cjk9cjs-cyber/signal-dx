@@ -10,6 +10,7 @@ public sealed class CatService : IAsyncDisposable
     Task? _pollTask;
     readonly HamlibRigctldLauncher _launcher = new();
     bool _pttEnabled;
+    long _freqEpoch;
 
     public CatService(Func<StationSettings, ICatController>? controllerFactory = null)
     {
@@ -87,7 +88,15 @@ public sealed class CatService : IAsyncDisposable
     {
         if (!_controller.IsConnected) return;
         long hz = (long)Math.Round(mhz * 1_000_000d);
-        await _controller.SetFrequencyHzAsync(hz, ct).ConfigureAwait(false);
+        Interlocked.Increment(ref _freqEpoch);
+        try
+        {
+            await _controller.SetFrequencyHzAsync(hz, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            Interlocked.Increment(ref _freqEpoch);
+        }
         LastFrequencyHz = hz;
         FrequencyChanged?.Invoke(hz);
     }
@@ -197,8 +206,10 @@ public sealed class CatService : IAsyncDisposable
             {
                 try
                 {
+                    long epoch = Interlocked.Read(ref _freqEpoch);
                     var snap = await _controller.GetSnapshotAsync(ct).ConfigureAwait(false);
-                    PublishSnapshot(snap);
+                    if (Interlocked.Read(ref _freqEpoch) == epoch)
+                        PublishSnapshot(snap);
                 }
                 catch (OperationCanceledException) { break; }
                 catch

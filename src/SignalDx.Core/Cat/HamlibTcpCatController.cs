@@ -1,11 +1,13 @@
+using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
 
 namespace SignalDx.Cat;
 
 /// <summary>
-/// Full-ish Hamlib <c>rigctld</c> TCP client (default 127.0.0.1:4532).
-/// Speaks the netrigctl protocol: command + newline, response lines ending with RPRT.
+/// Hamlib <c>rigctld</c> TCP client (default 127.0.0.1:4532).
+/// Uses the extended response protocol (<c>+</c> prefix) so every command — including getters —
+/// terminates immediately with <c>RPRT &lt;code&gt;</c> instead of waiting for a read timeout.
 /// </summary>
 public sealed class HamlibTcpCatController : ICatController
 {
@@ -13,6 +15,8 @@ public sealed class HamlibTcpCatController : ICatController
     readonly int _port;
     TcpClient? _client;
     NetworkStream? _stream;
+    volatile bool _connected;
+    string? _rigInfo;
     readonly SemaphoreSlim _gate = new(1, 1);
     readonly StringBuilder _readBuf = new();
 
@@ -23,23 +27,35 @@ public sealed class HamlibTcpCatController : ICatController
     }
 
     public string Name => $"Hamlib {_host}:{_port}";
-    public bool IsConnected => _client?.Connected == true;
+    public bool IsConnected => _connected && _client is not null && _stream is not null;
 
     public async Task ConnectAsync(CancellationToken ct = default)
     {
         await DisconnectAsync().ConfigureAwait(false);
-        _client = new TcpClient { NoDelay = true };
-        using var reg = ct.Register(() => { try { _client.Close(); } catch { /* ignore */ } });
-        await _client.ConnectAsync(_host, _port, ct).ConfigureAwait(false);
-        _stream = _client.GetStream();
-        _readBuf.Clear();
+        var client = new TcpClient { NoDelay = true };
+        using var reg = ct.Register(() => { try { client.Close(); } catch { /* ignore */ } });
+        try
+        {
+            await client.ConnectAsync(_host, _port, ct).ConfigureAwait(false);
+            _client = client;
+            _stream = client.GetStream();
+            _readBuf.Clear();
+            _connected = true;
 
-        // Verify with a lightweight probe.
-        await GetFrequencyHzAsync(ct).ConfigureAwait(false);
+            // Verify with a lightweight probe.
+            await GetFrequencyHzAsync(ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            await DisconnectAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     public Task DisconnectAsync()
     {
+        _connected = false;
+        _rigInfo = null;
         try { _stream?.Dispose(); } catch { /* ignore */ }
         try { _client?.Dispose(); } catch { /* ignore */ }
         _stream = null;
@@ -51,10 +67,13 @@ public sealed class HamlibTcpCatController : ICatController
     public async Task<long?> GetFrequencyHzAsync(CancellationToken ct = default)
     {
         var lines = await CommandLinesAsync("f", ct).ConfigureAwait(false);
+        if (HasErrorRprt(lines)) return null;
         foreach (var line in lines)
         {
-            if (line.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase)) continue;
-            if (long.TryParse(line.Trim(), out long hz)) return hz;
+            if (IsMetaOrEchoLine(line, "get_freq")) continue;
+            string val = StripFieldPrefix(line, "Frequency:");
+            if (long.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out long hz))
+                return hz;
         }
         return null;
     }
@@ -71,20 +90,23 @@ public sealed class HamlibTcpCatController : ICatController
     public async Task SetModeAsync(string mode, int passbandHz = 0, CancellationToken ct = default)
     {
         string m = string.IsNullOrWhiteSpace(mode) ? "USB" : mode.Trim().ToUpperInvariant();
-        await EnsureOkAsync($"M {m} {Math.Max(0, passbandHz)}", ct).ConfigureAwait(false);
+        // Passband 0 in Hamlib means RIG_PASSBAND_NORMAL (which narrows Yaesu PKTUSB to ~600 Hz).
+        // Use -1 (RIG_PASSBAND_NOCHANGE) when no explicit passband is requested.
+        int pb = passbandHz > 0 ? passbandHz : -1;
+        await EnsureOkAsync($"M {m} {pb}", ct).ConfigureAwait(false);
     }
 
     public async Task SetRfPowerAsync(double level01, CancellationToken ct = default)
     {
         double v = Math.Clamp(level01, 0, 1);
-        await EnsureOkAsync($"L RFPOWER {v.ToString(System.Globalization.CultureInfo.InvariantCulture)}", ct)
+        await EnsureOkAsync($"L RFPOWER {v.ToString(CultureInfo.InvariantCulture)}", ct)
             .ConfigureAwait(false);
     }
 
     public async Task SetAudioDriveAsync(double level01, CancellationToken ct = default)
     {
         double v = Math.Clamp(level01, 0, 1);
-        string s = v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string s = v.ToString(CultureInfo.InvariantCulture);
         // Try common Hamlib TX-audio levels; first success wins.
         foreach (var name in new[] { "MICGAIN", "AF", "USB_AF", "COMP" })
         {
@@ -109,11 +131,12 @@ public sealed class HamlibTcpCatController : ICatController
     async Task<double?> GetLevelAsync(string name, CancellationToken ct)
     {
         var lines = await CommandLinesAsync($"l {name}", ct).ConfigureAwait(false);
+        if (HasErrorRprt(lines)) return null;
         foreach (var line in lines)
         {
-            if (line.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase)) continue;
-            if (double.TryParse(line.Trim(), System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out double v))
+            if (IsMetaOrEchoLine(line, "get_level")) continue;
+            string val = StripAnyKeyPrefix(line);
+            if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
                 return v;
         }
         return null;
@@ -122,10 +145,13 @@ public sealed class HamlibTcpCatController : ICatController
     public async Task<bool?> GetPttAsync(CancellationToken ct = default)
     {
         var lines = await CommandLinesAsync("t", ct).ConfigureAwait(false);
+        if (HasErrorRprt(lines)) return null;
         foreach (var line in lines)
         {
-            if (line.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase)) continue;
-            if (int.TryParse(line.Trim(), out int v)) return v != 0;
+            if (IsMetaOrEchoLine(line, "get_ptt")) continue;
+            string val = StripFieldPrefix(line, "PTT:");
+            if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v))
+                return v != 0;
         }
         return null;
     }
@@ -133,11 +159,23 @@ public sealed class HamlibTcpCatController : ICatController
     public async Task<(string? Mode, int Passband)> GetModeAsync(CancellationToken ct = default)
     {
         var lines = await CommandLinesAsync("m", ct).ConfigureAwait(false);
+        if (HasErrorRprt(lines)) return (null, 0);
         string? mode = null;
         int pass = 0;
         foreach (var line in lines)
         {
-            if (line.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase)) continue;
+            if (IsMetaOrEchoLine(line, "get_mode")) continue;
+            if (line.StartsWith("Mode:", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = line["Mode:".Length..].Trim();
+                continue;
+            }
+            if (line.StartsWith("Passband:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (int.TryParse(line["Passband:".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int p))
+                    pass = p;
+                continue;
+            }
             if (mode is null && !int.TryParse(line.Trim(), out _))
                 mode = line.Trim();
             else if (int.TryParse(line.Trim(), out int p))
@@ -149,13 +187,28 @@ public sealed class HamlibTcpCatController : ICatController
     public async Task<string?> GetVfoAsync(CancellationToken ct = default)
     {
         var lines = await CommandLinesAsync("v", ct).ConfigureAwait(false);
-        return lines.FirstOrDefault(l => !l.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase))?.Trim();
+        if (HasErrorRprt(lines)) return null;
+        foreach (var line in lines)
+        {
+            if (IsMetaOrEchoLine(line, "get_vfo")) continue;
+            string val = StripFieldPrefix(line, "VFO:");
+            if (val.Length > 0) return val;
+        }
+        return null;
     }
 
     public async Task<string?> GetInfoAsync(CancellationToken ct = default)
     {
         var lines = await CommandLinesAsync("_", ct).ConfigureAwait(false);
-        return string.Join(" | ", lines.Where(l => !l.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase)));
+        if (HasErrorRprt(lines)) return null;
+        var parts = new List<string>();
+        foreach (var line in lines)
+        {
+            if (IsMetaOrEchoLine(line, "get_info")) continue;
+            string val = StripFieldPrefix(line, "Info:");
+            if (val.Length > 0) parts.Add(val);
+        }
+        return parts.Count > 0 ? string.Join(" | ", parts) : null;
     }
 
     public async Task<RigSnapshot> GetSnapshotAsync(CancellationToken ct = default)
@@ -165,7 +218,6 @@ public sealed class HamlibTcpCatController : ICatController
         int pass = 0;
         bool? ptt = null;
         string? vfo = null;
-        string? info = null;
         double? rf = null;
         double? alc = null;
 
@@ -173,7 +225,10 @@ public sealed class HamlibTcpCatController : ICatController
         try { (mode, pass) = await GetModeAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
         try { ptt = await GetPttAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
         try { vfo = await GetVfoAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
-        try { info = await GetInfoAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
+        if (_rigInfo is null)
+        {
+            try { _rigInfo = await GetInfoAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
+        }
         try { rf = await GetRfPowerAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
         try { alc = await GetAlcAsync(ct).ConfigureAwait(false); } catch { /* keep going */ }
 
@@ -184,7 +239,7 @@ public sealed class HamlibTcpCatController : ICatController
             PassbandHz = pass,
             Ptt = ptt,
             Vfo = vfo,
-            RigInfo = info,
+            RigInfo = _rigInfo,
             RfPower = rf,
             Alc = alc
         };
@@ -194,22 +249,35 @@ public sealed class HamlibTcpCatController : ICatController
     {
         var lines = await CommandLinesAsync(cmd, ct).ConfigureAwait(false);
         var rprt = lines.LastOrDefault(l => l.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase));
-        if (rprt is null) return;
-        var parts = rprt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2 && int.TryParse(parts[1], out int code) && code != 0)
+        if (rprt is null)
+            throw new InvalidOperationException($"Hamlib {cmd} got no RPRT response.");
+        if (TryParseRprtCode(rprt, out int code) && code != 0)
             throw new InvalidOperationException($"Hamlib {cmd} failed: {rprt}");
     }
 
     async Task<List<string>> CommandLinesAsync(string cmd, CancellationToken ct)
     {
-        if (_stream is null) throw new InvalidOperationException("Hamlib not connected.");
+        if (!_connected || _stream is null)
+            throw new InvalidOperationException("Hamlib not connected.");
+
+        // Extended response protocol ("+" prefix) guarantees an RPRT line for every command.
+        string wireCmd = cmd.StartsWith('+') ? cmd : "+" + cmd;
+
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            byte[] payload = Encoding.ASCII.GetBytes(cmd + "\n");
+            if (!_connected || _stream is null)
+                throw new InvalidOperationException("Hamlib not connected.");
+
+            byte[] payload = Encoding.ASCII.GetBytes(wireCmd + "\n");
             await _stream.WriteAsync(payload, ct).ConfigureAwait(false);
             await _stream.FlushAsync(ct).ConfigureAwait(false);
             return await ReadUntilRprtAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+        {
+            _connected = false;
+            throw;
         }
         finally
         {
@@ -250,11 +318,14 @@ public sealed class HamlibTcpCatController : ICatController
                 break;
             }
 
-            if (n <= 0) break;
+            if (n <= 0)
+            {
+                _connected = false;
+                throw new IOException("Hamlib rigctld closed the connection.");
+            }
             _readBuf.Append(Encoding.ASCII.GetString(buf, 0, n));
         }
 
-        // Some builds omit RPRT on get commands — return whatever we collected.
         if (_readBuf.Length > 0)
         {
             foreach (var extra in _readBuf.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -263,6 +334,36 @@ public sealed class HamlibTcpCatController : ICatController
         }
 
         return lines;
+    }
+
+    static bool TryParseRprtCode(string line, out int code)
+    {
+        var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2 && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out code))
+            return true;
+        code = 0;
+        return false;
+    }
+
+    static bool HasErrorRprt(List<string> lines)
+    {
+        var rprt = lines.LastOrDefault(l => l.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase));
+        return rprt is not null && TryParseRprtCode(rprt, out int code) && code != 0;
+    }
+
+    static bool IsMetaOrEchoLine(string line, string commandEchoPrefix) =>
+        line.StartsWith("RPRT", StringComparison.OrdinalIgnoreCase)
+        || line.StartsWith(commandEchoPrefix + ":", StringComparison.OrdinalIgnoreCase);
+
+    static string StripFieldPrefix(string line, string prefix) =>
+        line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? line[prefix.Length..].Trim()
+            : line.Trim();
+
+    static string StripAnyKeyPrefix(string line)
+    {
+        int colon = line.IndexOf(':');
+        return colon >= 0 ? line[(colon + 1)..].Trim() : line.Trim();
     }
 
     public async ValueTask DisposeAsync()
