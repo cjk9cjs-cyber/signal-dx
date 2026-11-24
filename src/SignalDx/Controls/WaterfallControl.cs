@@ -50,7 +50,7 @@ public sealed class WaterfallControl : FrameworkElement
     readonly List<CallSignMark> _callSigns = new();
     const int MaxCallSignMarks = 400;
     static readonly Color CallSignTextColor = Color.FromRgb(0xE7, 0xEE, 0xF8);
-    static readonly Color CallSignHighlightColor = Color.FromRgb(0x6F, 0xE0, 0x8A);
+    static readonly Color CallSignActiveColor = Color.FromRgb(0x1F, 0x7A, 0x3A);
     static readonly Color CallSignWantedColor = Color.FromRgb(0xC6, 0x28, 0x28);
     bool _showCallSigns = true;
 
@@ -578,12 +578,7 @@ public sealed class WaterfallControl : FrameworkElement
         foreach (var mark in visible)
         {
             byte alpha = recentSlots[0] == mark.SlotLocal ? (byte)255 : (byte)150;
-            Color textColor = mark.Tone switch
-            {
-                CallSignTone.Wanted => Colors.White,
-                CallSignTone.Active => CallSignHighlightColor,
-                _ => CallSignTextColor
-            };
+            Color textColor = mark.Tone == CallSignTone.Normal ? CallSignTextColor : Colors.White;
             var textBrush = new SolidColorBrush(Color.FromArgb(alpha, textColor.R, textColor.G, textColor.B));
             textBrush.Freeze();
             var ft = new FormattedText(
@@ -601,9 +596,12 @@ public sealed class WaterfallControl : FrameworkElement
             if (placed.Any(r => r.IntersectsWith(box))) continue;
             placed.Add(box);
 
-            var boxBrush = mark.Tone == CallSignTone.Wanted
-                ? new SolidColorBrush(Color.FromArgb(alpha, CallSignWantedColor.R, CallSignWantedColor.G, CallSignWantedColor.B))
-                : new SolidColorBrush(Color.FromArgb((byte)(alpha * 160 / 255), 0x05, 0x08, 0x10));
+            var boxBrush = mark.Tone switch
+            {
+                CallSignTone.Wanted => new SolidColorBrush(Color.FromArgb(alpha, CallSignWantedColor.R, CallSignWantedColor.G, CallSignWantedColor.B)),
+                CallSignTone.Active => new SolidColorBrush(Color.FromArgb(alpha, CallSignActiveColor.R, CallSignActiveColor.G, CallSignActiveColor.B)),
+                _ => new SolidColorBrush(Color.FromArgb((byte)(alpha * 160 / 255), 0x05, 0x08, 0x10))
+            };
             boxBrush.Freeze();
             dc.DrawRectangle(boxBrush, null, box);
             dc.DrawText(ft, new Point(lx, ly));
