@@ -14,6 +14,14 @@ public sealed class FrequencyPickEventArgs : EventArgs
     public required bool SnapToDecode { get; init; }
 }
 
+/// <summary>Call-sign label styling on the waterfall; higher values draw first and win overlaps.</summary>
+public enum CallSignTone
+{
+    Normal,
+    Active,
+    Wanted
+}
+
 public sealed class WaterfallControl : FrameworkElement
 {
     const double ScaleBarHeight = 26;
@@ -43,6 +51,7 @@ public sealed class WaterfallControl : FrameworkElement
     const int MaxCallSignMarks = 400;
     static readonly Color CallSignTextColor = Color.FromRgb(0xE7, 0xEE, 0xF8);
     static readonly Color CallSignHighlightColor = Color.FromRgb(0x6F, 0xE0, 0x8A);
+    static readonly Color CallSignWantedColor = Color.FromRgb(0xC6, 0x28, 0x28);
     bool _showCallSigns = true;
 
     bool _dragging;
@@ -216,11 +225,11 @@ public sealed class WaterfallControl : FrameworkElement
         local.Ticks / (TimeSpan.TicksPerSecond * (long)_slotSeconds);
 
     /// <summary>Record a decoded call at its audio frequency for the slot it was heard in.</summary>
-    public void AddCallSign(string call, int hz, DateTime slotUtc, bool highlight)
+    public void AddCallSign(string call, int hz, DateTime slotUtc, CallSignTone tone)
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(() => AddCallSign(call, hz, slotUtc, highlight), DispatcherPriority.Render);
+            Dispatcher.BeginInvoke(() => AddCallSign(call, hz, slotUtc, tone), DispatcherPriority.Render);
             return;
         }
         if (!_showCallSigns || _wsprDisplay || string.IsNullOrWhiteSpace(call)) return;
@@ -234,7 +243,7 @@ public sealed class WaterfallControl : FrameworkElement
             Call = text,
             Hz = hz,
             SlotLocal = slotLocal,
-            Highlight = highlight
+            Tone = tone
         });
         if (_callSigns.Count > MaxCallSignMarks)
             _callSigns.RemoveAt(0);
@@ -563,14 +572,19 @@ public sealed class WaterfallControl : FrameworkElement
         var placed = new List<Rect>();
         var visible = _callSigns
             .Where(m => recentSlots.Contains(m.SlotLocal))
-            .OrderByDescending(m => m.Highlight)
+            .OrderByDescending(m => m.Tone)
             .ThenByDescending(m => m.SlotLocal);
 
         foreach (var mark in visible)
         {
             byte alpha = recentSlots[0] == mark.SlotLocal ? (byte)255 : (byte)150;
-            Color baseColor = mark.Highlight ? CallSignHighlightColor : CallSignTextColor;
-            var textBrush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
+            Color textColor = mark.Tone switch
+            {
+                CallSignTone.Wanted => Colors.White,
+                CallSignTone.Active => CallSignHighlightColor,
+                _ => CallSignTextColor
+            };
+            var textBrush = new SolidColorBrush(Color.FromArgb(alpha, textColor.R, textColor.G, textColor.B));
             textBrush.Freeze();
             var ft = new FormattedText(
                 mark.Call,
@@ -587,9 +601,11 @@ public sealed class WaterfallControl : FrameworkElement
             if (placed.Any(r => r.IntersectsWith(box))) continue;
             placed.Add(box);
 
-            var shadow = new SolidColorBrush(Color.FromArgb((byte)(alpha * 160 / 255), 0x05, 0x08, 0x10));
-            shadow.Freeze();
-            dc.DrawRectangle(shadow, null, box);
+            var boxBrush = mark.Tone == CallSignTone.Wanted
+                ? new SolidColorBrush(Color.FromArgb(alpha, CallSignWantedColor.R, CallSignWantedColor.G, CallSignWantedColor.B))
+                : new SolidColorBrush(Color.FromArgb((byte)(alpha * 160 / 255), 0x05, 0x08, 0x10));
+            boxBrush.Freeze();
+            dc.DrawRectangle(boxBrush, null, box);
             dc.DrawText(ft, new Point(lx, ly));
         }
     }
@@ -852,7 +868,7 @@ public sealed class WaterfallControl : FrameworkElement
         public required string Call { get; init; }
         public required int Hz { get; init; }
         public required DateTime SlotLocal { get; init; }
-        public required bool Highlight { get; init; }
+        public required CallSignTone Tone { get; init; }
     }
 
     void FillBackground(bool resetTimeMarks = true)

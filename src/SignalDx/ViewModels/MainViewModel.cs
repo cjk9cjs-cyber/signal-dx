@@ -3099,7 +3099,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 hit.IsWanted = want is not null;
                 hit.IsUnverified = IsUnverifiedDecode(hit);
                 if (!string.IsNullOrWhiteSpace(hit.DxCall))
-                    _waterfall?.AddCallSign(hit.DxCall, hit.Hz, hit.Utc, hit.IsToMe || hit.IsWanted || hit.IsWorking);
+                {
+                    var tone = hit.IsWanted ? CallSignTone.Wanted
+                        : hit.IsToMe || hit.IsWorking ? CallSignTone.Active
+                        : CallSignTone.Normal;
+                    _waterfall?.AddCallSign(hit.DxCall, hit.Hz, hit.Utc, tone);
+                }
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);
@@ -3388,8 +3393,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return AutoSequencer.ExtractQsoToken(hit.Message) == Ft8QsoToken.Grid;
     }
 
+    const bool AllCall7DimmingEnabled = false;
+
     bool IsUnverifiedDecode(DecodeHit hit)
     {
+        if (!AllCall7DimmingEnabled) return false;
         string call = hit.DxCall?.Trim() ?? "";
         if (call.Length == 0) return false;
         if (call.Equals(MyCall?.Trim(), StringComparison.OrdinalIgnoreCase)) return false;

@@ -148,7 +148,7 @@ Leaving WSPR turns **Enable TX** off and clears beacon free-text so FT8 does not
 - FT8/FT4: ~200–3000 Hz, gated signal traces, 15 s (or 7.5 s) time marks.
 - WSPR-2: narrow 1400–1600 Hz passband, soft weak-signal traces, 2-minute marks.
 - Palettes under **Colors** / Settings → Display.
-- FT8/FT4 call signs appear along the bottom of the waterfall at each decode's frequency, for the last two decode slots (the older slot is dimmer). Green = calls to you, wanted, or your active QSO partner. Turn off under Settings → Display → **Show call signs on the waterfall**.
+- FT8/FT4 call signs appear along the bottom of the waterfall at each decode's frequency, for the last two decode slots (the older slot is dimmer). Wanted calls (call, state, or country) get a red background with white text. Green = calls to you or your active QSO partner. Turn off under Settings → Display → **Show call signs on the waterfall**.
 - Markers persist across mode changes and app restarts.
 
 ### Auto sequence
@@ -162,11 +162,10 @@ With **Auto seq** on:
 
 Double-click remains a manual override to work a specific station.
 
-### Country, state, and unlisted calls
+### Country and state
 
 - **Country** comes from the callsign prefix (built in, offline).
 - **US state** comes from the station's grid square. Signal DX uses the 6-character grid from the bundled `CALL3.TXT` database when that station has one, then the grid in the decoded message. Near state lines a grid can still be labeled as the neighboring state.
-- **Dimmed rows** are calls that are not on the bundled `ALLCALL7.TXT` list. That list is JTDX's false-decode filter, built from PSK Reporter spots, so a dimmed row is either a likely false decode or a real station that simply isn't on the list yet. Dimming is display-only: alerts still fire, and a Wanted match still shows in full red. Your own call and the DX call you are working are never dimmed.
 - Both data files are bundled with the app and updated by hand, so they only change when a new Signal DX build ships.
 
 ### Alerts
@@ -228,7 +227,6 @@ On **Log QSO**, Signal DX can:
 | Enable TX was on at start | Fixed in 2.12.1+ — TX is session-only and starts off |
 | Markers jump after WSPR | FT8 and WSPR markers are stored separately (2.10+); set once per mode |
 | State label looks wrong | Set your Grid to 6 characters; state lines can fall inside a 4-character square |
-| Many rows are dimmed | Normal for rare or new stations not on `ALLCALL7`; dimming does not hide decodes or block alerts |
 | WSPR then FT8 keys CQ alone | Leaving WSPR disables Enable TX (2.12+); turn Enable TX on only when ready |
 | CAT won’t connect | Correct COM/baud; Start rigctld; or HRD Rig Control already running for HRD |
 | UDP logger quiet | UDP enabled; logger listening on `127.0.0.1:2237`; fire a test **Log QSO** |
