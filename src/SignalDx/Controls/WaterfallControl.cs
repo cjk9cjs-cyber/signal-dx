@@ -181,7 +181,7 @@ public sealed class WaterfallControl : FrameworkElement
         }
     }
 
-    /// <summary>WSJT-X Gain, 0–80. Higher contrast as the value rises. 40 matches the old maximum.</summary>
+    /// <summary>WSJT-X Gain, 0–80. Higher brightens traces. 40 stays in the palette; 80 can reach white.</summary>
     public int Gain
     {
         get => _gain;
@@ -926,14 +926,14 @@ public sealed class WaterfallControl : FrameworkElement
 
     void WriteColumn(int y, float[] column)
     {
-        // Color is measured from the noise floor, then multiplied by Gain.
-        // The old scale started 10 dB up and spread the rest over 16 dB, so a real
-        // trace at Gain 40 was only a few dB into a near-black palette.
+        // dB above the noise floor that reaches the white end of the palette.
+        // A short span (the previous /10 dB scale) clipped every painted bin to white
+        // as soon as Gain left 0. 0 → 40 dB, 40 → 28 dB, 80 → 16 dB.
         float baseline = _noiseFloor + _zero;
         float gateLevel = baseline + GateLift();
-        float gainMul = 0.35f + _gain / 25f;
+        float fullScaleDb = Math.Max(16f, 40f - _gain * 0.30f);
         var bg = WaterfallPalette.Background(PaletteKind);
-        double gamma = _wsprDisplay ? 0.75 : 0.65;
+        double gamma = _wsprDisplay ? 0.9 : 0.85;
         for (int x = 0; x < _width; x++)
         {
             Color c;
@@ -944,10 +944,9 @@ public sealed class WaterfallControl : FrameworkElement
             }
             else
             {
-                float linear = Math.Clamp((v - baseline) * gainMul / 10f, 0f, 1f);
+                float linear = Math.Clamp((v - baseline) / fullScaleDb, 0f, 1f);
                 float n = (float)Math.Pow(linear, gamma);
-                // A drawn pixel starts in the first visible palette color, not on the black floor.
-                float mapped = Math.Clamp(0.22f + 0.78f * n, 0f, 1f);
+                float mapped = Math.Clamp(0.10f + 0.90f * n, 0f, 1f);
                 c = WaterfallPalette.Map(PaletteKind, mapped);
                 if (y > 0)
                     c = BlendWithPixelAbove(c, y, x);
