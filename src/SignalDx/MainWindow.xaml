@@ -494,6 +494,9 @@
                 <DataGridTextColumn Header="dB" Binding="{Binding SnrDb, StringFormat=0.0}"
                                    Width="44" MinWidth="28"
                                    ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
+                <DataGridTextColumn Header="Hz" Binding="{Binding Hz}"
+                                   Width="50" MinWidth="32"
+                                   ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
                 <DataGridTextColumn Header="mi" Binding="{Binding DistanceText}"
                                    Width="48" MinWidth="28"
                                    ElementStyle="{StaticResource ActivityTextBlockStyle}"/>
