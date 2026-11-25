@@ -161,7 +161,7 @@ With **Auto seq** on:
 1. **CQ** (or Start CQ) holds calling until someone answers with a grid.
 2. Replies advance macros automatically (report → R+report → 73/RR73).
 3. **Log QSO** is offered on the first 73 / RR73.
-4. **Reset seq** clears the QSO state back to idle.
+4. **Reset seq** (in the RX Frequency header, FT8/FT4 only) clears the QSO state back to idle.
 
 Double-click remains a manual override to work a specific station.
 

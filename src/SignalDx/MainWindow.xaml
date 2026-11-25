@@ -176,8 +176,6 @@
                     DropDownOpened="BandPreset_OnDropDownOpened"
                     DropDownClosed="BandPreset_OnDropDownClosed"
                     ToolTip="Pick a band/dial — applied immediately (and sent to the radio when CAT is connected)."/>
-          <Button Content="Reset seq" Command="{Binding ResetSeqCommand}" Margin="8,0,0,0"
-                  Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
         </WrapPanel>
       </Grid>
     </Border>
@@ -473,6 +471,9 @@
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="QRZ" Command="{Binding LookupQrzCommand}" Padding="8,2" Margin="0,0,6,0"
                         ToolTip="Open selected / DX call on qrz.com in your browser"/>
+                <Button Content="Reset seq" Command="{Binding ResetSeqCommand}" Padding="8,2" Margin="0,0,6,0"
+                        ToolTip="Clear the QSO state back to idle"
+                        Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
                 <Button Content="Clear" Command="{Binding ClearRxActivityCommand}" Padding="8,2"/>
               </StackPanel>
             </DockPanel>
