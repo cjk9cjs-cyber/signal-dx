@@ -409,7 +409,8 @@
             <DockPanel DockPanel.Dock="Top" Margin="8,6">
               <TextBlock Text="BAND ACTIVITY" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"/>
               <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearActivityCommand}"
-                      HorizontalAlignment="Right" Padding="8,2"/>
+                      HorizontalAlignment="Right" Padding="8,2"
+                      ToolTip="Clear Band Activity only. RX Frequency stays."/>
             </DockPanel>
             <DataGrid x:Name="BandActivityGrid"
                       ItemsSource="{Binding Activity}" SelectedItem="{Binding SelectedActivityDecode}"

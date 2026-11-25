@@ -177,10 +177,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ClearActivityCommand = new RelayCommand(() =>
         {
             SelectedActivityDecode = null;
-            SelectedRxDecode = null;
             Activity.Clear();
-            _rxHistorySuppressed = false;
-            RebuildRxFilter();
+            // Leave RX Frequency alone. Suppress the history rebuild so the next
+            // decode does not refill that pane from the now-empty Band Activity list.
+            _rxHistorySuppressed = true;
         });
         ClearRxActivityCommand = new RelayCommand(() =>
         {

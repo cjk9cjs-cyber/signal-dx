@@ -121,7 +121,7 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 | **Auto seq / Call alert / Wanted alert / TX even** | Behavior toggles |
 | **Settings → Audio** | Input and output sound devices |
 | **Waterfall** | Live spectrum; click to set Rx/Tx; right-click / Shift for Tx-only variants |
-| **Band Activity** | All decodes (SNR, DT, Hz, distance, flag, country, state, message) |
+| **Band Activity** | All decodes (SNR, DT, Hz, distance, flag, country, state, message). **Clear** empties this list only |
 | **RX Frequency** | Decodes near your Rx/Tx markers and traffic to you |
 | **TX Macros** | Standard / custom macros and free-text; **Apply** loads a typed DX call |
 | **Status bar** | CAT, TX/RX state, decode counts, Wanted hits |
