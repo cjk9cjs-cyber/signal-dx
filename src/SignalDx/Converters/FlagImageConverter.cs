@@ -15,7 +15,7 @@ public sealed class FlagImageConverter : IValueConverter
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is not string iso || iso.Length != 2)
+        if (value is not string iso || (iso.Length != 2 && !iso.Equals("gb-sct", StringComparison.OrdinalIgnoreCase)))
             return null;
 
         return Cache.GetOrAdd(iso.ToLowerInvariant(), Load);

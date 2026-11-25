@@ -53,6 +53,17 @@ public static class CountryFlag
         return null;
     }
 
+    /// <summary>
+    /// Image key under Assets/Flags. Same as <see cref="ToIso"/> except Scotland, which has its own flag
+    /// (ISO stays GB so Wanted country matching is unchanged).
+    /// </summary>
+    public static string? ToFlagImageKey(string? country, string? state = null)
+    {
+        if (string.Equals(country?.Trim(), "Scotland", StringComparison.OrdinalIgnoreCase))
+            return "gb-sct";
+        return ToIso(country, state);
+    }
+
     static readonly Dictionary<string, string> Aliases =
         new(StringComparer.OrdinalIgnoreCase)
         {

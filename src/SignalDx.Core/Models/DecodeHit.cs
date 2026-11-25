@@ -96,6 +96,9 @@ public sealed class DecodeHit : INotifyPropertyChanged
     /// <summary>ISO country code for the transmitter (drives the flag image).</summary>
     public string? FlagIso => CountryFlag.ToIso(Country, State);
 
+    /// <summary>Flag image file key (ISO code, or a subdivision like gb-sct for Scotland).</summary>
+    public string? FlagImageKey => CountryFlag.ToFlagImageKey(Country, State);
+
     /// <summary>US/CA subdivision shown beside the national flag image.</summary>
     public string FlagStateBadge =>
         !string.IsNullOrWhiteSpace(State) && Country is "USA" or "United States" or "Canada"
