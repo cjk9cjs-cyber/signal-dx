@@ -223,7 +223,7 @@
       <Grid.RowDefinitions>
         <RowDefinition x:Name="MainRowOps" Height="Auto"/>
         <RowDefinition x:Name="MainRowWspr" Height="Auto"/>
-        <RowDefinition x:Name="MainRowWaterfall" Height="2.2*" MinHeight="80"/>
+        <RowDefinition x:Name="MainRowWaterfall" Height="2.2*" MinHeight="120"/>
         <RowDefinition Height="6"/>
         <RowDefinition x:Name="MainRowActivity" Height="3.5*" MinHeight="160"/>
       </Grid.RowDefinitions>
@@ -257,9 +257,6 @@
             <Label Content="Tx" Margin="8,0,0,0"/>
             <TextBox Width="55" Text="{Binding TxHz, UpdateSourceTrigger=PropertyChanged}"
                      ToolTip="{Binding TxHzToolTip}"/>
-            <Label Content="Colors" Margin="12,0,0,0"/>
-            <ComboBox Width="100" ItemsSource="{Binding WaterfallPalettes}"
-                      SelectedItem="{Binding SelectedWaterfallPalette}"/>
           </StackPanel>
         </DockPanel>
       </Border>
@@ -299,12 +296,59 @@
       <!-- Waterfall -->
       <Border Grid.Row="2" Background="#05080F" BorderBrush="{StaticResource BorderBrush}"
               BorderThickness="1" ClipToBounds="True">
-        <Grid Background="#05080F">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="158"/>
-          </Grid.ColumnDefinitions>
-          <Grid Grid.Column="0">
+        <DockPanel Background="#05080F">
+          <Border DockPanel.Dock="Bottom" Background="{StaticResource PanelBrush}"
+                  BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4">
+            <WrapPanel VerticalAlignment="Center">
+              <TextBlock Text="Start" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                         VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <TextBox Width="60" Margin="0,0,14,0" VerticalAlignment="Center"
+                       Text="{Binding WaterfallStartHz, UpdateSourceTrigger=LostFocus}"
+                       ToolTip="Left edge of the waterfall, in Hz (WSJT-X Start)."/>
+              <TextBlock Text="Bins/Pixel" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                         VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox Width="56" Margin="0,0,14,0" VerticalAlignment="Center"
+                        ItemsSource="{Binding WaterfallBinsChoices}"
+                        SelectedItem="{Binding WaterfallBinsPerPixel}"
+                        ToolTip="4 shows the whole passband. 1 is the narrowest zoom (WSJT-X Bins/Pixel)."/>
+              <TextBlock Text="N Avg" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                         VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox Width="56" Margin="0,0,14,0" VerticalAlignment="Center"
+                        ItemsSource="{Binding WaterfallAvgChoices}"
+                        SelectedItem="{Binding WaterfallAvg}"
+                        ToolTip="Spectra averaged into each row. 1 is every update (WSJT-X N Avg)."/>
+              <CheckBox Content="Flatten" IsChecked="{Binding WaterfallFlatten}" Margin="0,0,14,0"
+                        VerticalAlignment="Center"
+                        ToolTip="Subtract a wide baseline so a tilted noise floor sits flat (WSJT-X Flatten)."/>
+              <TextBlock Text="Colors" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                         VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox Width="100" Margin="0,0,14,0" VerticalAlignment="Center"
+                        ItemsSource="{Binding WaterfallPalettes}"
+                        SelectedItem="{Binding SelectedWaterfallPalette}"
+                        ToolTip="Waterfall color palette."/>
+              <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center"
+                          ToolTip="Higher Gain brightens traces. Around 40 a normal signal stays colored. 80 pushes strong traces toward white. Raise Zero if the background fills in.">
+                <TextBlock Text="Gain" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Slider Width="120" Minimum="0" Maximum="80" TickFrequency="1"
+                        IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                        VerticalAlignment="Center" Value="{Binding WaterfallGain}"/>
+                <TextBlock Text="{Binding WaterfallGain}" Foreground="{StaticResource TextBrush}" FontSize="11"
+                           VerticalAlignment="Center" Margin="4,0,0,0" MinWidth="20"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                          ToolTip="Higher Zero hides weaker traces and keeps the background solid (WSJT-X Zero).">
+                <TextBlock Text="Zero" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Slider Width="100" Minimum="0" Maximum="30" TickFrequency="1"
+                        IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                        VerticalAlignment="Center" Value="{Binding WaterfallZero}"/>
+                <TextBlock Text="{Binding WaterfallZero}" Foreground="{StaticResource TextBrush}" FontSize="11"
+                           VerticalAlignment="Center" Margin="4,0,0,0" MinWidth="20"/>
+              </StackPanel>
+            </WrapPanel>
+          </Border>
+          <Grid>
           <controls:WaterfallControl x:Name="Waterfall"/>
           <DockPanel Margin="8,6,8,30" IsHitTestVisible="False">
             <TextBlock DockPanel.Dock="Top" Foreground="#6F86A8" FontSize="11">
@@ -333,50 +377,7 @@
             </TextBlock>
           </DockPanel>
           </Grid>
-          <Border Grid.Column="1" Background="{StaticResource PanelBrush}"
-                  BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0" Padding="8,8,8,6">
-            <DockPanel>
-              <StackPanel DockPanel.Dock="Top">
-                <TextBlock Text="Start" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
-                <TextBox Margin="0,2,0,8" Text="{Binding WaterfallStartHz, UpdateSourceTrigger=LostFocus}"
-                         ToolTip="Left edge of the waterfall, in Hz (WSJT-X Start)."/>
-                <TextBlock Text="Bins/Pixel" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
-                <ComboBox Margin="0,2,0,8" ItemsSource="{Binding WaterfallBinsChoices}"
-                          SelectedItem="{Binding WaterfallBinsPerPixel}"
-                          ToolTip="4 shows the whole passband. 1 is the narrowest zoom (WSJT-X Bins/Pixel)."/>
-                <TextBlock Text="N Avg" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
-                <ComboBox Margin="0,2,0,8" ItemsSource="{Binding WaterfallAvgChoices}"
-                          SelectedItem="{Binding WaterfallAvg}"
-                          ToolTip="Spectra averaged into each row. 1 is every update (WSJT-X N Avg)."/>
-                <CheckBox Content="Flatten" IsChecked="{Binding WaterfallFlatten}" Margin="0,0,0,8"
-                          ToolTip="Subtract a wide baseline so a tilted noise floor sits flat (WSJT-X Flatten)."/>
-              </StackPanel>
-              <UniformGrid Columns="2" Rows="1">
-                <DockPanel Margin="0,0,4,0" ToolTip="Higher Gain packs the colors into fewer dB, so traces stand out more (WSJT-X Gain).">
-                  <TextBlock DockPanel.Dock="Bottom" Text="Gain" HorizontalAlignment="Center" Margin="0,4,0,0"
-                             Foreground="{StaticResource MutedBrush}" FontSize="11"/>
-                  <TextBlock DockPanel.Dock="Top" Text="{Binding WaterfallGain}" HorizontalAlignment="Center"
-                             Foreground="{StaticResource TextBrush}" FontSize="11"/>
-                  <Slider Orientation="Vertical" Minimum="0" Maximum="80" TickFrequency="1"
-                          IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
-                          HorizontalAlignment="Center" Margin="0,4"
-                          Value="{Binding WaterfallGain}"
-                          ToolTip="Higher Gain brightens traces. Around 40 a normal signal stays colored. 80 pushes strong traces toward white. Raise Zero if the background fills in."/>
-                </DockPanel>
-                <DockPanel Margin="4,0,0,0" ToolTip="Higher Zero hides weaker traces and keeps the background solid (WSJT-X Zero).">
-                  <TextBlock DockPanel.Dock="Bottom" Text="Zero" HorizontalAlignment="Center" Margin="0,4,0,0"
-                             Foreground="{StaticResource MutedBrush}" FontSize="11"/>
-                  <TextBlock DockPanel.Dock="Top" Text="{Binding WaterfallZero}" HorizontalAlignment="Center"
-                             Foreground="{StaticResource TextBrush}" FontSize="11"/>
-                  <Slider Orientation="Vertical" Minimum="0" Maximum="30" TickFrequency="1"
-                          IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
-                          HorizontalAlignment="Center" Margin="0,4"
-                          Value="{Binding WaterfallZero}"/>
-                </DockPanel>
-              </UniformGrid>
-            </DockPanel>
-          </Border>
-        </Grid>
+        </DockPanel>
       </Border>
 
       <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
