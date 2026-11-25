@@ -97,8 +97,9 @@ public sealed class WaterfallControl : FrameworkElement
 
         Focusable = true;
         Cursor = Cursors.Cross;
-        // Nearest-neighbor keeps FT8 traces as crisp pixel columns on a solid field.
-        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
+        // High quality scaling so a trace that is a few pixels off the bitmap grid
+        // doesn't stair-step. Empty pixels stay the solid background color.
+        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.HighQuality);
         RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
         ToolTip = "Left-click: set Rx (+ Tx if locked)\nRight-click / Shift+click: set Tx only\nDrag to slide the channel";
         SizeChanged += (_, _) => EnsureBitmapMatchesLayout();
@@ -736,26 +737,29 @@ public sealed class WaterfallControl : FrameworkElement
         {
             double hz = MinHz + (MaxHz - MinHz) * x / Math.Max(1, _width - 1);
             double bin = hz * FftSize / (double)SampleRate;
-            float db = _wsprDisplay
-                ? SampleBinInterpolated(magnitudesDb, bin)
-                : magnitudesDb[Math.Clamp((int)Math.Round(bin), 0, bins - 1)];
+            // Fractional bins, so a tone ramps across pixels instead of a flat rectangle.
+            float db = SampleBinInterpolated(magnitudesDb, bin);
             _column[x] = db;
             if (db > peak) peak = db;
         }
 
-        // Narrow WSPR band: light 3-tap smooth so FFT bins don't paint as fat blocks.
-        if (_wsprDisplay && _width >= 3)
+        // Round the ridge. A whole FFT bin is several pixels wide; without this the
+        // trace is a stack of hard blocks.
+        if (_width >= 5)
         {
-            float prev = _column[0];
-            for (int x = 1; x < _width - 1; x++)
+            peak = -120;
+            for (int x = 2; x < _width - 2; x++)
             {
-                float cur = _column[x];
-                float next = _column[x + 1];
-                float sm = (prev + cur * 2f + next) * 0.25f;
-                prev = cur;
-                _column[x] = sm;
+                float sm = (_column[x - 2] + 2f * _column[x - 1] + 3f * _column[x]
+                            + 2f * _column[x + 1] + _column[x + 2]) / 9f;
+                _noiseScratch[x] = sm;
                 if (sm > peak) peak = sm;
             }
+            _noiseScratch[0] = _column[0];
+            _noiseScratch[1] = _column[1];
+            _noiseScratch[_width - 2] = _column[_width - 2];
+            _noiseScratch[_width - 1] = _column[_width - 1];
+            Array.Copy(_noiseScratch, _column, _width);
         }
 
         // Quiet percentile, not the average. Signals and noise peaks sit above it,
@@ -830,7 +834,7 @@ public sealed class WaterfallControl : FrameworkElement
         float gate = ActiveGateDb;
         float range = Math.Max(14f, _signalCeil - (_noiseFloor + gate));
         var bg = WaterfallPalette.Background(PaletteKind);
-        double gamma = _wsprDisplay ? 0.85 : 0.72;
+        double gamma = _wsprDisplay ? 0.9 : 0.85;
         for (int x = 0; x < _width; x++)
         {
             Color c;
@@ -843,11 +847,11 @@ public sealed class WaterfallControl : FrameworkElement
             {
                 float linear = Math.Clamp((v - (_noiseFloor + gate)) / range, 0f, 1f);
                 float n = (float)Math.Pow(linear, gamma);
-                // WSPR: gentler floor so soft traces don't jump to neon.
-                float mapped = _wsprDisplay
-                    ? Math.Clamp(0.10f + 0.90f * n, 0f, 1f)
-                    : Math.Clamp(0.18f + 0.82f * n, 0f, 1f);
+                // Start near the background so the edge of a trace fades instead of stepping.
+                float mapped = Math.Clamp(0.04f + 0.96f * n, 0f, 1f);
                 c = WaterfallPalette.Map(PaletteKind, mapped);
+                if (y > 0)
+                    c = BlendWithPixelAbove(c, y, x);
             }
 
             int i = (y * _width + x) * 4;
@@ -856,6 +860,17 @@ public sealed class WaterfallControl : FrameworkElement
             _pixels[i + 2] = c.R;
             _pixels[i + 3] = 255;
         }
+    }
+
+    /// <summary>Soften the horizontal stripe between spectrum rows without tinting empty background.</summary>
+    Color BlendWithPixelAbove(Color current, int y, int x)
+    {
+        int i = ((y - 1) * _width + x) * 4;
+        const float keep = 0.72f;
+        return Color.FromRgb(
+            (byte)(current.R * keep + _pixels[i + 2] * (1f - keep)),
+            (byte)(current.G * keep + _pixels[i + 1] * (1f - keep)),
+            (byte)(current.B * keep + _pixels[i] * (1f - keep)));
     }
 
     sealed class CallSignMark

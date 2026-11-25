@@ -112,10 +112,18 @@ if (Test-Path -LiteralPath $pdf) {
 
 Write-Host "Printing PDF with Edge…" -ForegroundColor Cyan
 & $edge --headless --disable-gpu --no-pdf-header-footer --print-to-pdf="$pdf" $htmlUri
-Start-Sleep -Seconds 2
+
+# The Edge launcher often exits before the print process has written the PDF.
+# Leave the HTML in place until that file exists.
+$deadline = (Get-Date).AddSeconds(20)
+do {
+    if ((Test-Path -LiteralPath $pdf) -and (Get-Item -LiteralPath $pdf).Length -ge 1000) { break }
+    Start-Sleep -Milliseconds 400
+} while ((Get-Date) -lt $deadline)
+
 Remove-Item -LiteralPath $html -Force -ErrorAction SilentlyContinue
 
-if (-not (Test-Path -LiteralPath $pdf) -or (Get-Item $pdf).Length -lt 1000) {
+if (-not (Test-Path -LiteralPath $pdf) -or (Get-Item -LiteralPath $pdf).Length -lt 1000) {
     throw "PDF was not created at $pdf"
 }
 
