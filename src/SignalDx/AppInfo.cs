@@ -15,7 +15,7 @@ public static class AppInfo
     /// Date this assembly version was cut. Update with every version bump
     /// (see .cursor/rules/bump-version.mdc).
     /// </summary>
-    public static readonly DateOnly VersionDate = new(2026, 11, 25); // 2.19.5
+    public static readonly DateOnly VersionDate = new(2026, 11, 25); // 2.19.6
 
     public static string Version
     {

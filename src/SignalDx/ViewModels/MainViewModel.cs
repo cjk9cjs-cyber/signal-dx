@@ -3690,22 +3690,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return true;
         if (hit.IsToMe)
             return true;
-        if (hit.IsWorking)
-            return true;
 
-        // Once the QSO is over (and TX is off) a finished station must not linger via the
-        // old Tx frequency or its call — only our own outbound rows stay.
+        // Our own outbound rows always stay. Other stations only show near Rx/Tx audio or when
+        // they call us — the station being worked is NOT pulled back in by call sign, so a
+        // cleared pane stays clear after a failed call.
+        if (hit.Message.StartsWith('→'))
+            return true;
         bool qsoLive = EnableTx || _holdCq || IsActiveDirectedQso();
-        bool ownTxRow = hit.Message.StartsWith('→');
-        if (Math.Abs(hit.Hz - TxHz) <= 50 && (qsoLive || ownTxRow))
-            return true;
-
-        string work = ActiveQsoCall;
-        if (!string.IsNullOrWhiteSpace(work) &&
-            hit.Message.Contains(work, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return false;
+        return Math.Abs(hit.Hz - TxHz) <= 50 && qsoLive;
     }
 
     /// <summary>Force a decode into the RX pane (CQ reply / working station), even after Clear.</summary>
