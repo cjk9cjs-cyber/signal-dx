@@ -4134,6 +4134,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 $"drive={_settings.TxDrivePercent}% peak={peak * playGain:0.00} enc={encName} hold={holdSec:0.00}s");
 
             await HoldTxUntilAsync(holdSec, startSlot);
+            if (!wspr && IsSeventyThreeSignOff(message))
+                EndQsoAfterSeventyThree();
             // Only the first farewell opens the log — skip if DX already sent 73/RR73.
             if (!wspr &&
                 IsSeventyThreeMessage(message) &&
@@ -4174,6 +4176,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (remainMs <= 0) break;
             await Task.Delay((int)Math.Min(40, remainMs));
         }
+    }
+
+    static bool IsSeventyThreeSignOff(string message)
+    {
+        var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 &&
+               (parts[^1].Equals("73", StringComparison.OrdinalIgnoreCase) ||
+                parts[^1].Equals("RR73", StringComparison.OrdinalIgnoreCase));
+    }
+
+    void EndQsoAfterSeventyThree()
+    {
+        _holdCq = false;
+        _deferTxUntilDecode = false;
+        _seq.MarkComplete();
+        EnableTx = false;
+        PhaseLabel = _seq.Phase.ToString();
+        Status = "73 sent — QSO ended, TX stopped";
     }
 
     static bool IsSeventyThreeMessage(string message)
