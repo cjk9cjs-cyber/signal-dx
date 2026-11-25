@@ -181,11 +181,11 @@ public sealed class WaterfallControl : FrameworkElement
         }
     }
 
-    /// <summary>WSJT-X Gain, 0–40. Higher contrast as the value rises.</summary>
+    /// <summary>WSJT-X Gain, 0–80. Higher contrast as the value rises. 40 matches the old maximum.</summary>
     public int Gain
     {
         get => _gain;
-        set => _gain = Math.Clamp(value, 0, 40);
+        set => _gain = Math.Clamp(value, 0, 80);
     }
 
     /// <summary>WSJT-X Zero, 0–30 dB above the noise gate. Higher hides weaker traces.</summary>
@@ -892,7 +892,7 @@ public sealed class WaterfallControl : FrameworkElement
     /// </summary>
     void BuildDisplayColumn()
     {
-        float gate = _noiseFloor + ActiveGateDb + _zero;
+        float gate = _noiseFloor + GateLift() + _zero;
         float instant = gate + (_wsprDisplay ? 8f : 9f);
         for (int x = 0; x < _width; x++)
         {
@@ -926,11 +926,14 @@ public sealed class WaterfallControl : FrameworkElement
 
     void WriteColumn(int y, float[] column)
     {
-        float gateLevel = _noiseFloor + ActiveGateDb + _zero;
-        // Gain 0 is a wide, low-contrast scale. Gain 40 packs the colors into 16 dB.
-        float range = Math.Clamp(56f - _gain, 10f, 56f);
+        // Color is measured from the noise floor, then multiplied by Gain.
+        // The old scale started 10 dB up and spread the rest over 16 dB, so a real
+        // trace at Gain 40 was only a few dB into a near-black palette.
+        float baseline = _noiseFloor + _zero;
+        float gateLevel = baseline + GateLift();
+        float gainMul = 0.35f + _gain / 25f;
         var bg = WaterfallPalette.Background(PaletteKind);
-        double gamma = _wsprDisplay ? 0.9 : 0.85;
+        double gamma = _wsprDisplay ? 0.75 : 0.65;
         for (int x = 0; x < _width; x++)
         {
             Color c;
@@ -941,10 +944,10 @@ public sealed class WaterfallControl : FrameworkElement
             }
             else
             {
-                float linear = Math.Clamp((v - gateLevel) / range, 0f, 1f);
+                float linear = Math.Clamp((v - baseline) * gainMul / 10f, 0f, 1f);
                 float n = (float)Math.Pow(linear, gamma);
-                // Start near the background so the edge of a trace fades instead of stepping.
-                float mapped = Math.Clamp(0.04f + 0.96f * n, 0f, 1f);
+                // A drawn pixel starts in the first visible palette color, not on the black floor.
+                float mapped = Math.Clamp(0.22f + 0.78f * n, 0f, 1f);
                 c = WaterfallPalette.Map(PaletteKind, mapped);
                 if (y > 0)
                     c = BlendWithPixelAbove(c, y, x);
@@ -957,6 +960,9 @@ public sealed class WaterfallControl : FrameworkElement
             _pixels[i + 3] = 255;
         }
     }
+
+    /// <summary>dB above the noise floor a bin must reach before it can leave the solid background. Higher Gain lowers this.</summary>
+    float GateLift() => Math.Max(3.5f, ActiveGateDb - _gain * 0.12f);
 
     /// <summary>Soften the horizontal stripe between spectrum rows without tinting empty background.</summary>
     Color BlendWithPixelAbove(Color current, int y, int x)

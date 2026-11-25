@@ -366,10 +366,11 @@
                              Foreground="{StaticResource MutedBrush}" FontSize="11"/>
                   <TextBlock DockPanel.Dock="Top" Text="{Binding WaterfallGain}" HorizontalAlignment="Center"
                              Foreground="{StaticResource TextBrush}" FontSize="11"/>
-                  <Slider Orientation="Vertical" Minimum="0" Maximum="40" TickFrequency="1"
+                  <Slider Orientation="Vertical" Minimum="0" Maximum="80" TickFrequency="1"
                           IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
                           HorizontalAlignment="Center" Margin="0,4"
-                          Value="{Binding WaterfallGain}"/>
+                          Value="{Binding WaterfallGain}"
+                          ToolTip="Higher Gain multiplies trace brightness. 40 should be clearly colored. 80 is hotter. Raise Zero if the background fills in."/>
                 </DockPanel>
                 <DockPanel Margin="4,0,0,0" ToolTip="Higher Zero hides weaker traces and keeps the background solid (WSJT-X Zero).">
                   <TextBlock DockPanel.Dock="Bottom" Text="Zero" HorizontalAlignment="Center" Margin="0,4,0,0"

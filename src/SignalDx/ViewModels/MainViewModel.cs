@@ -1285,7 +1285,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _settings.WaterfallGain;
         set
         {
-            int v = Math.Clamp(value, 0, 40);
+            int v = Math.Clamp(value, 0, 80);
             if (_settings.WaterfallGain == v) return;
             _settings.WaterfallGain = v;
             if (_waterfall is not null) _waterfall.Gain = v;
