@@ -47,6 +47,14 @@ public sealed class WaterfallControl : FrameworkElement
     float[] _display;
     float[] _noiseScratch;
     byte[] _hold;
+    double[] _prefix = [];
+    float[][]? _avgPower;
+    int _avgPos;
+    int _avgFill;
+    int _gain = 20;
+    int _zero;
+    bool _flatten;
+    int _averageCount = 1;
     float _noiseFloor = -90;
     float _signalCeil = -25;
     long? _lastSlotIndex;
@@ -170,6 +178,42 @@ public sealed class WaterfallControl : FrameworkElement
             ToolTip = value
                 ? "WSPR-2 passband (1400–1600 Hz)\nLeft-click: set Tx/Rx\nRight-click / Shift: Tx only"
                 : "Left-click: set Rx (+ Tx if locked)\nRight-click / Shift+click: set Tx only\nDrag to slide the channel";
+        }
+    }
+
+    /// <summary>WSJT-X Gain, 0–40. Higher contrast as the value rises.</summary>
+    public int Gain
+    {
+        get => _gain;
+        set => _gain = Math.Clamp(value, 0, 40);
+    }
+
+    /// <summary>WSJT-X Zero, 0–30 dB above the noise gate. Higher hides weaker traces.</summary>
+    public int Zero
+    {
+        get => _zero;
+        set => _zero = Math.Clamp(value, 0, 30);
+    }
+
+    /// <summary>WSJT-X Flatten. Pulls a tilted or humped noise floor flat.</summary>
+    public bool Flatten
+    {
+        get => _flatten;
+        set => _flatten = value;
+    }
+
+    /// <summary>WSJT-X N Avg. 1 draws every spectrum; higher values smooth traces.</summary>
+    public int AverageCount
+    {
+        get => _averageCount;
+        set
+        {
+            int v = Math.Clamp(value, 1, 8);
+            if (v == _averageCount) return;
+            _averageCount = v;
+            _avgPower = null;
+            _avgFill = 0;
+            _avgPos = 0;
         }
     }
 
@@ -743,6 +787,8 @@ public sealed class WaterfallControl : FrameworkElement
             if (db > peak) peak = db;
         }
 
+        AverageColumn();
+
         // Round the ridge. A whole FFT bin is several pixels wide; without this the
         // trace is a stack of hard blocks.
         if (_width >= 5)
@@ -762,6 +808,9 @@ public sealed class WaterfallControl : FrameworkElement
             Array.Copy(_noiseScratch, _column, _width);
         }
 
+        if (_flatten)
+            FlattenColumn();
+
         // Quiet percentile, not the average. Signals and noise peaks sit above it,
         // so the floor stays put and the empty band stays one solid color.
         float quiet = QuietFloor(_column);
@@ -769,6 +818,52 @@ public sealed class WaterfallControl : FrameworkElement
         _signalCeil = Math.Max(peak, _signalCeil * 0.97f + peak * 0.03f);
         if (_signalCeil < _noiseFloor + ActiveGateDb + 12f)
             _signalCeil = _noiseFloor + ActiveGateDb + 12f;
+    }
+
+    void AverageColumn()
+    {
+        if (_averageCount <= 1 || _width < 2) return;
+        if (_avgPower is null || _avgPower.Length != _averageCount || _avgPower[0].Length != _width)
+        {
+            _avgPower = new float[_averageCount][];
+            for (int i = 0; i < _averageCount; i++)
+                _avgPower[i] = new float[_width];
+            _avgPos = 0;
+            _avgFill = 0;
+        }
+
+        float[] slot = _avgPower[_avgPos];
+        for (int x = 0; x < _width; x++)
+            slot[x] = MathF.Pow(10f, _column[x] / 10f);
+        _avgPos = (_avgPos + 1) % _averageCount;
+        if (_avgFill < _averageCount) _avgFill++;
+
+        for (int x = 0; x < _width; x++)
+        {
+            double sum = 0;
+            for (int i = 0; i < _avgFill; i++)
+                sum += _avgPower[i][x];
+            _column[x] = 10f * MathF.Log10((float)(sum / _avgFill) + 1e-20f);
+        }
+    }
+
+    void FlattenColumn()
+    {
+        int n = _width;
+        if (n < 32) return;
+        int radius = Math.Max(24, n / 14);
+        if (_prefix.Length < n + 1)
+            _prefix = new double[n + 1];
+        _prefix[0] = 0;
+        for (int i = 0; i < n; i++)
+            _prefix[i + 1] = _prefix[i] + _column[i];
+        for (int x = 0; x < n; x++)
+        {
+            int a = Math.Max(0, x - radius);
+            int b = Math.Min(n - 1, x + radius);
+            float avg = (float)((_prefix[b + 1] - _prefix[a]) / (b - a + 1));
+            _column[x] -= avg;
+        }
     }
 
     float QuietFloor(float[] column)
@@ -797,7 +892,7 @@ public sealed class WaterfallControl : FrameworkElement
     /// </summary>
     void BuildDisplayColumn()
     {
-        float gate = _noiseFloor + ActiveGateDb;
+        float gate = _noiseFloor + ActiveGateDb + _zero;
         float instant = gate + (_wsprDisplay ? 8f : 9f);
         for (int x = 0; x < _width; x++)
         {
@@ -831,21 +926,22 @@ public sealed class WaterfallControl : FrameworkElement
 
     void WriteColumn(int y, float[] column)
     {
-        float gate = ActiveGateDb;
-        float range = Math.Max(14f, _signalCeil - (_noiseFloor + gate));
+        float gateLevel = _noiseFloor + ActiveGateDb + _zero;
+        // Gain 0 is a wide, low-contrast scale. Gain 40 packs the colors into 16 dB.
+        float range = Math.Clamp(56f - _gain, 10f, 56f);
         var bg = WaterfallPalette.Background(PaletteKind);
         double gamma = _wsprDisplay ? 0.9 : 0.85;
         for (int x = 0; x < _width; x++)
         {
             Color c;
             float v = column[x];
-            if (float.IsNegativeInfinity(v) || v < _noiseFloor + gate)
+            if (float.IsNegativeInfinity(v) || v < gateLevel)
             {
                 c = bg;
             }
             else
             {
-                float linear = Math.Clamp((v - (_noiseFloor + gate)) / range, 0f, 1f);
+                float linear = Math.Clamp((v - gateLevel) / range, 0f, 1f);
                 float n = (float)Math.Pow(linear, gamma);
                 // Start near the background so the edge of a trace fades instead of stepping.
                 float mapped = Math.Clamp(0.04f + 0.96f * n, 0f, 1f);
@@ -895,6 +991,9 @@ public sealed class WaterfallControl : FrameworkElement
             ClearTimeMarks();
         if (_hold is not null)
             Array.Clear(_hold);
+        _avgPower = null;
+        _avgFill = 0;
+        _avgPos = 0;
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
         InvalidateVisual();
     }

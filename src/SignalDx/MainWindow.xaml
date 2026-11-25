@@ -309,6 +309,11 @@
       <Border Grid.Row="2" Background="#05080F" BorderBrush="{StaticResource BorderBrush}"
               BorderThickness="1" ClipToBounds="True">
         <Grid Background="#05080F">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="158"/>
+          </Grid.ColumnDefinitions>
+          <Grid Grid.Column="0">
           <controls:WaterfallControl x:Name="Waterfall"/>
           <DockPanel Margin="8,6,8,30" IsHitTestVisible="False">
             <TextBlock DockPanel.Dock="Top" Foreground="#6F86A8" FontSize="11">
@@ -336,6 +341,49 @@
               </TextBlock.Style>
             </TextBlock>
           </DockPanel>
+          </Grid>
+          <Border Grid.Column="1" Background="{StaticResource PanelBrush}"
+                  BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0" Padding="8,8,8,6">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Top">
+                <TextBlock Text="Start" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                <TextBox Margin="0,2,0,8" Text="{Binding WaterfallStartHz, UpdateSourceTrigger=LostFocus}"
+                         ToolTip="Left edge of the waterfall, in Hz (WSJT-X Start)."/>
+                <TextBlock Text="Bins/Pixel" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                <ComboBox Margin="0,2,0,8" ItemsSource="{Binding WaterfallBinsChoices}"
+                          SelectedItem="{Binding WaterfallBinsPerPixel}"
+                          ToolTip="4 shows the whole passband. 1 is the narrowest zoom (WSJT-X Bins/Pixel)."/>
+                <TextBlock Text="N Avg" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                <ComboBox Margin="0,2,0,8" ItemsSource="{Binding WaterfallAvgChoices}"
+                          SelectedItem="{Binding WaterfallAvg}"
+                          ToolTip="Spectra averaged into each row. 1 is every update (WSJT-X N Avg)."/>
+                <CheckBox Content="Flatten" IsChecked="{Binding WaterfallFlatten}" Margin="0,0,0,8"
+                          ToolTip="Subtract a wide baseline so a tilted noise floor sits flat (WSJT-X Flatten)."/>
+              </StackPanel>
+              <UniformGrid Columns="2" Rows="1">
+                <DockPanel Margin="0,0,4,0" ToolTip="Higher Gain packs the colors into fewer dB, so traces stand out more (WSJT-X Gain).">
+                  <TextBlock DockPanel.Dock="Bottom" Text="Gain" HorizontalAlignment="Center" Margin="0,4,0,0"
+                             Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                  <TextBlock DockPanel.Dock="Top" Text="{Binding WaterfallGain}" HorizontalAlignment="Center"
+                             Foreground="{StaticResource TextBrush}" FontSize="11"/>
+                  <Slider Orientation="Vertical" Minimum="0" Maximum="40" TickFrequency="1"
+                          IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                          HorizontalAlignment="Center" Margin="0,4"
+                          Value="{Binding WaterfallGain}"/>
+                </DockPanel>
+                <DockPanel Margin="4,0,0,0" ToolTip="Higher Zero hides weaker traces and keeps the background solid (WSJT-X Zero).">
+                  <TextBlock DockPanel.Dock="Bottom" Text="Zero" HorizontalAlignment="Center" Margin="0,4,0,0"
+                             Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                  <TextBlock DockPanel.Dock="Top" Text="{Binding WaterfallZero}" HorizontalAlignment="Center"
+                             Foreground="{StaticResource TextBrush}" FontSize="11"/>
+                  <Slider Orientation="Vertical" Minimum="0" Maximum="30" TickFrequency="1"
+                          IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                          HorizontalAlignment="Center" Margin="0,4"
+                          Value="{Binding WaterfallZero}"/>
+                </DockPanel>
+              </UniformGrid>
+            </DockPanel>
+          </Border>
         </Grid>
       </Border>
 

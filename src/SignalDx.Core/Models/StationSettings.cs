@@ -53,6 +53,20 @@ public sealed class StationSettings
     public string OutputDeviceId { get; set; } = "";
     public string WaterfallPalette { get; set; } = "Classic";
     public bool WaterfallCallSigns { get; set; } = true;
+    /// <summary>WSJT-X Gain. Higher packs the palette into fewer dB (more contrast).</summary>
+    public int WaterfallGain { get; set; } = 20;
+    /// <summary>WSJT-X Zero. Higher lifts the color floor so weaker traces disappear.</summary>
+    public int WaterfallZero { get; set; }
+    /// <summary>WSJT-X Flatten. Subtract a wide baseline so the noise floor is even.</summary>
+    public bool WaterfallFlatten { get; set; }
+    /// <summary>WSJT-X N Avg. Spectra averaged before a row is drawn.</summary>
+    public int WaterfallAvg { get; set; } = 1;
+    /// <summary>WSJT-X Bins/Pixel. 4 shows the whole passband; 1 is the narrowest zoom.</summary>
+    public int WaterfallBinsPerPixel { get; set; } = 4;
+    /// <summary>Left edge of the FT8/FT4 waterfall, Hz.</summary>
+    public int DigiWaterfallStartHz { get; set; } = 200;
+    /// <summary>Left edge of the WSPR waterfall, Hz.</summary>
+    public int WsprWaterfallStartHz { get; set; } = 1400;
     public bool LockTxToRx { get; set; }
 
     // CAT / Hamlib

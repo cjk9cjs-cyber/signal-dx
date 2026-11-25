@@ -537,6 +537,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settings.Mode = value;
             _timing.SetMode(value);
             ApplyModeToWaterfall();
+            Raise(nameof(WaterfallStartHz));
             if (IsWsprMode)
                 EnterWsprMode();
             else if (IsWsprModeName(previous))
@@ -843,26 +844,48 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // Tx/Rx Hz are swapped by SwapAudioHzForModeSwitch — do not overwrite digi markers here.
             _waterfall.WsprDisplayMode = true;
             _waterfall.ChannelWidthHz = 5;
-            _waterfall.MinHz = 1400;
-            _waterfall.MaxHz = 1600;
             _waterfall.SnapHz = 1;
             _waterfall.SlotSeconds = 120;
             _waterfall.TxHz = TxHz;
             _waterfall.RxHz = RxHz;
-            _waterfall.ResetDisplay();
         }
         else
         {
             _waterfall.WsprDisplayMode = false;
             _waterfall.ChannelWidthHz = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 90 : 50;
-            _waterfall.MinHz = 200;
-            _waterfall.MaxHz = 3000;
             _waterfall.SnapHz = 6.25;
             _waterfall.SlotSeconds = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase) ? 7 : 15;
             _waterfall.TxHz = TxHz;
             _waterfall.RxHz = RxHz;
-            _waterfall.ResetDisplay();
         }
+
+        ApplyWaterfallControls(resetView: true);
+    }
+
+    /// <summary>
+    /// WSJT-X wide-graph controls. Bins/Pixel 4 is the whole passband; 1 is the narrowest zoom.
+    /// </summary>
+    void ApplyWaterfallControls(bool resetView)
+    {
+        if (_waterfall is null) return;
+
+        _waterfall.Gain = WaterfallGain;
+        _waterfall.Zero = WaterfallZero;
+        _waterfall.Flatten = WaterfallFlatten;
+        _waterfall.AverageCount = WaterfallAvg;
+
+        double passMin = IsWsprMode ? 1400 : 200;
+        double passMax = IsWsprMode ? 1600 : 3000;
+        double full = passMax - passMin;
+        int bins = Math.Clamp(WaterfallBinsPerPixel, 1, 4);
+        double span = full * bins / 4.0;
+        double start = WaterfallStartHz;
+        if (start < passMin) start = passMin;
+        if (start + span > passMax) start = Math.Max(passMin, passMax - span);
+        _waterfall.MinHz = start;
+        _waterfall.MaxHz = start + span;
+        if (resetView)
+            _waterfall.ResetDisplay();
     }
 
     void RefreshWsprFreeText()
@@ -1251,6 +1274,105 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_waterfall is not null)
                 _waterfall.ShowCallSigns = value;
             Raise();
+        }
+    }
+
+    public IReadOnlyList<int> WaterfallAvgChoices { get; } = [1, 2, 3, 4, 5, 6, 7, 8];
+    public IReadOnlyList<int> WaterfallBinsChoices { get; } = [1, 2, 3, 4];
+
+    public int WaterfallGain
+    {
+        get => _settings.WaterfallGain;
+        set
+        {
+            int v = Math.Clamp(value, 0, 40);
+            if (_settings.WaterfallGain == v) return;
+            _settings.WaterfallGain = v;
+            if (_waterfall is not null) _waterfall.Gain = v;
+            Raise();
+        }
+    }
+
+    public int WaterfallZero
+    {
+        get => _settings.WaterfallZero;
+        set
+        {
+            int v = Math.Clamp(value, 0, 30);
+            if (_settings.WaterfallZero == v) return;
+            _settings.WaterfallZero = v;
+            if (_waterfall is not null) _waterfall.Zero = v;
+            Raise();
+        }
+    }
+
+    public bool WaterfallFlatten
+    {
+        get => _settings.WaterfallFlatten;
+        set
+        {
+            if (_settings.WaterfallFlatten == value) return;
+            _settings.WaterfallFlatten = value;
+            if (_waterfall is not null) _waterfall.Flatten = value;
+            Raise();
+        }
+    }
+
+    public int WaterfallAvg
+    {
+        get => Math.Clamp(_settings.WaterfallAvg, 1, 8);
+        set
+        {
+            int v = Math.Clamp(value, 1, 8);
+            if (_settings.WaterfallAvg == v) return;
+            _settings.WaterfallAvg = v;
+            if (_waterfall is not null) _waterfall.AverageCount = v;
+            Raise();
+        }
+    }
+
+    public int WaterfallBinsPerPixel
+    {
+        get => Math.Clamp(_settings.WaterfallBinsPerPixel == 0 ? 4 : _settings.WaterfallBinsPerPixel, 1, 4);
+        set
+        {
+            int v = Math.Clamp(value, 1, 4);
+            if (_settings.WaterfallBinsPerPixel == v) return;
+            _settings.WaterfallBinsPerPixel = v;
+            Raise();
+            ApplyWaterfallControls(resetView: true);
+            Raise(nameof(WaterfallStartHz));
+        }
+    }
+
+    public int WaterfallStartHz
+    {
+        get
+        {
+            int raw = IsWsprMode ? _settings.WsprWaterfallStartHz : _settings.DigiWaterfallStartHz;
+            double passMin = IsWsprMode ? 1400 : 200;
+            double passMax = IsWsprMode ? 1600 : 3000;
+            double span = (passMax - passMin) * WaterfallBinsPerPixel / 4.0;
+            return (int)Math.Clamp(raw, passMin, Math.Max(passMin, passMax - span));
+        }
+        set
+        {
+            double passMin = IsWsprMode ? 1400 : 200;
+            double passMax = IsWsprMode ? 1600 : 3000;
+            double span = (passMax - passMin) * WaterfallBinsPerPixel / 4.0;
+            int v = (int)Math.Clamp(value, passMin, Math.Max(passMin, passMax - span));
+            if (IsWsprMode)
+            {
+                if (_settings.WsprWaterfallStartHz == v) return;
+                _settings.WsprWaterfallStartHz = v;
+            }
+            else
+            {
+                if (_settings.DigiWaterfallStartHz == v) return;
+                _settings.DigiWaterfallStartHz = v;
+            }
+            Raise();
+            ApplyWaterfallControls(resetView: true);
         }
     }
 
