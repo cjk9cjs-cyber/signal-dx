@@ -3672,14 +3672,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     bool MatchesRxPane(DecodeHit hit)
     {
-        if (Math.Abs(hit.Hz - RxHz) <= 50 || Math.Abs(hit.Hz - TxHz) <= 50)
+        if (Math.Abs(hit.Hz - RxHz) <= 50)
             return true;
         if (hit.IsToMe)
             return true;
         if (hit.IsWorking)
             return true;
 
-        string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
+        // Once the QSO is over (and TX is off) a finished station must not linger via the
+        // old Tx frequency or its call — only our own outbound rows stay.
+        bool qsoLive = EnableTx || _holdCq || IsActiveDirectedQso();
+        bool ownTxRow = hit.Message.StartsWith('→');
+        if (Math.Abs(hit.Hz - TxHz) <= 50 && (qsoLive || ownTxRow))
+            return true;
+
+        string work = ActiveQsoCall;
         if (!string.IsNullOrWhiteSpace(work) &&
             hit.Message.Contains(work, StringComparison.OrdinalIgnoreCase))
             return true;
