@@ -25,7 +25,9 @@ public static class HamlibCatalog
             if (_cache is not null && !forceRefresh)
                 return _cache;
 
-            var models = LoadFromRigctl(hamlibHintPath);
+            // A normal launch uses the bundled list. Shelling out to rigctl -l here runs on the
+            // UI thread before the window exists, and an unread stderr pipe can block forever.
+            var models = forceRefresh ? LoadFromRigctl(hamlibHintPath) : [];
             if (models.Count == 0)
                 models = LoadFromEmbedded();
             if (models.Count == 0)
@@ -88,8 +90,19 @@ public static class HamlibCatalog
                 }
             };
             if (!proc.Start()) return [];
-            string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(15000);
+            // Drain both pipes. Reading only stdout deadlocks once rigctl fills the stderr buffer.
+            Task<string> stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = proc.StandardError.ReadToEndAsync();
+            bool exited = proc.WaitForExit(8000);
+            if (!exited)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* already exited */ }
+                exited = proc.WaitForExit(2000);
+            }
+            if (!exited) return [];
+
+            string output = stdoutTask.GetAwaiter().GetResult();
+            _ = stderrTask.GetAwaiter().GetResult();
             var parsed = ParseList(output);
             if (parsed.Count > 0)
                 TryCacheToDisk(output);
