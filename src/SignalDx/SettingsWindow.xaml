@@ -205,11 +205,6 @@
                   <CheckBox Content="PTT on TX" IsChecked="{Binding CatPttEnabled}"/>
                   <CheckBox Content="Follow dial" IsChecked="{Binding CatFollowDial}"
                             ToolTip="Reserved for continuous dial sync. Picking a band preset always sets the radio frequency when CAT is connected."/>
-                  <CheckBox Content="CAT RF power" IsChecked="{Binding CatRfPowerEnabled}" Margin="12,0,0,0"
-                            ToolTip="Push Power (W) / Max watts as Hamlib RFPOWER on TX"/>
-                  <Label Content="Max W" Margin="10,0,0,0"/>
-                  <TextBox Width="50" Text="{Binding RadioMaxWatts, UpdateSourceTrigger=PropertyChanged}"
-                           ToolTip="Radio max watts for RFPOWER = Power / Max"/>
                 </WrapPanel>
                 <WrapPanel Margin="0,12,0,0">
                   <Button Content="Start rigctld" Command="{Binding StartRigctldCommand}"/>

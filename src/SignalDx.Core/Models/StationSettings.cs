@@ -38,9 +38,6 @@ public sealed class StationSettings
     public string TxPower { get; set; } = "50";
     /// <summary>TX audio drive 0–100% for ALC tuning (software level into the radio).</summary>
     public int TxDrivePercent { get; set; } = 40;
-    /// <summary>When true, push RFPOWER to the radio via CAT from TxPower watts vs radio max.</summary>
-    public bool CatRfPowerEnabled { get; set; } = true;
-    public double RadioMaxWatts { get; set; } = 100;
     public int InputDeviceIndex { get; set; } = -1;
     public int OutputDeviceIndex { get; set; } = -1;
     /// <summary>Preferred capture device friendly name (preferred over index when present).</summary>

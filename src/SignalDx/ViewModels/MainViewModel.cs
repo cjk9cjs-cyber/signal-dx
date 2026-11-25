@@ -740,7 +740,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Raise();
             Raise(nameof(TxPower));
             if (IsWsprMode) RefreshWsprFreeText();
-            _ = PushRfPowerAsync();
         }
     }
 
@@ -1388,7 +1387,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 Raise(nameof(SelectedWsprPowerLabel));
             }
             Raise();
-            _ = PushRfPowerAsync();
             if (IsWsprMode) RefreshWsprFreeText();
         }
     }
@@ -1418,23 +1416,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // HRD may map this onto a radio slider. Hamlib ignores it so Drive stays on the PC.
         if (_cat.IsConnected)
             _ = _cat.SetAudioDriveAsync(gain);
-    }
-
-    public bool CatRfPowerEnabled
-    {
-        get => _settings.CatRfPowerEnabled;
-        set { _settings.CatRfPowerEnabled = value; Raise(); }
-    }
-
-    public double RadioMaxWatts
-    {
-        get => _settings.RadioMaxWatts;
-        set
-        {
-            _settings.RadioMaxWatts = Math.Max(1, value);
-            Raise();
-            _ = PushRfPowerAsync();
-        }
     }
 
     public string AlcText
@@ -1475,6 +1456,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             string normalized = (value ?? "").Trim().ToUpperInvariant();
             if (!SetField(ref _dxCall, normalized)) return;
+            Raise(nameof(ActiveQsoCall));
             RefreshMacroPreviews();
         }
     }
@@ -1576,7 +1558,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string PhaseLabel
     {
         get => _phaseLabel;
-        set => SetField(ref _phaseLabel, value);
+        set
+        {
+            SetField(ref _phaseLabel, value);
+            Raise(nameof(ActiveQsoCall));
+        }
     }
 
     public double SlotProgress
@@ -2554,7 +2540,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(IsHrdSelected));
         if (_cat.IsConnected)
         {
-            await PushRfPowerAsync();
             // Always land in DATA-U / digi — band hops and many radios default to plain USB.
             string digi = await EnsureDigiModeAsync();
             // Read VFO a couple of times — HRD/rigctld can return empty on the first poll.
@@ -2782,22 +2767,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AlcText = $"DRV {_settings.TxDrivePercent}%";
         Raise(nameof(AlcLevel));
         Raise(nameof(AlcText));
-    }
-
-    async Task PushRfPowerAsync()
-    {
-        if (!CatRfPowerEnabled || !_cat.IsConnected) return;
-        if (!double.TryParse(TxPower, out double watts) || watts <= 0) return;
-        double max = Math.Max(1, RadioMaxWatts);
-        double level = Math.Clamp(watts / max, 0, 1);
-        try
-        {
-            await _cat.SetRfPowerAsync(level);
-        }
-        catch (Exception ex)
-        {
-            Status = $"RF power set failed: {ex.Message}";
-        }
     }
 
     void RebuildBandPresetList()
@@ -3553,19 +3522,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         hit.IsPreviouslyWorked = _workedCalls.Contains(hit.DxCall);
 
-        string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
-        work = (work ?? "").Trim();
-        if (string.IsNullOrEmpty(work))
-        {
-            hit.IsWorking = false;
-            return;
-        }
-
-        hit.IsWorking =
-            (!string.IsNullOrWhiteSpace(hit.DxCall) &&
-             hit.DxCall.Equals(work, StringComparison.OrdinalIgnoreCase)) ||
-            hit.Message.Contains(work, StringComparison.OrdinalIgnoreCase);
+        string work = ActiveQsoCall;
+        hit.IsWorking = work.Length > 0 &&
+            !string.IsNullOrWhiteSpace(hit.DxCall) &&
+            hit.DxCall.Trim().Equals(work, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>Call of the station in a live directed QSO, or empty. Drives green rows in the activity panes.</summary>
+    public string ActiveQsoCall => IsActiveDirectedQso() ? _seq.DxCall.Trim() : "";
 
     void PushLocalTxDecode(string message)
     {
@@ -3901,7 +3865,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            await PushRfPowerAsync();
             float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0.15, 1);
             // Up to 60s continuous carrier at Tx Hz for SWR / ALC.
             float[] audio = Ft8ToneGenerator.GenerateConstantTone(TxHz, seconds: 60, drive01: 1.0);
@@ -3974,7 +3937,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // Show the outbound call in Band/RX activity at the TX frequency.
             PushLocalTxDecode(message);
 
-            await PushRfPowerAsync();
             bool wspr = IsWsprMode;
             double seconds = wspr
                 ? WsprEncoder.SignalDurationSec + WsprEncoder.LeadInSec

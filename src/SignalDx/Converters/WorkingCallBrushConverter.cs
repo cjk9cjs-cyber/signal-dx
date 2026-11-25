@@ -7,9 +7,9 @@ namespace SignalDx.Converters;
 /// <summary>
 /// RX/Band row colors:
 /// Yellow — other station answered / called us (IsToMe).
-/// Green — we are calling CQ or a specific transmitter (our TX / working call).
+/// Green — our own outbound TX row, or a row transmitted by the station we are in a directed QSO with right now.
 /// Muted — previously logged / worked station (also struck through in the row style).
-/// Bindings: IsToMe, IsWorking, hit.DxCall, Message, window DxCall, IsPreviouslyWorked.
+/// Bindings: IsToMe, hit.DxCall, Message, ActiveQsoCall (empty when not in a directed QSO), IsPreviouslyWorked.
 /// </summary>
 public sealed class WorkingCallBrushConverter : IMultiValueConverter
 {
@@ -30,11 +30,10 @@ public sealed class WorkingCallBrushConverter : IMultiValueConverter
         if (values.Length < 5) return Normal;
 
         bool isToMe = values[0] is true;
-        bool isWorking = values[1] is true;
-        string hitDx = values[2] as string ?? "";
-        string message = values[3] as string ?? "";
-        string workDx = (values[4] as string ?? "").Trim();
-        bool previouslyWorked = values.Length >= 6 && values[5] is true;
+        string hitDx = (values[1] as string ?? "").Trim();
+        string message = values[2] as string ?? "";
+        string activeQso = (values[3] as string ?? "").Trim();
+        bool previouslyWorked = values[4] is true;
 
         // Their answer / call to us stays yellow (even if worked before).
         if (isToMe)
@@ -44,13 +43,8 @@ public sealed class WorkingCallBrushConverter : IMultiValueConverter
         if (message.StartsWith('→') || message.StartsWith("->", StringComparison.Ordinal))
             return Green;
 
-        // Station we are working / calling — green until they answer (IsToMe).
-        if (isWorking)
-            return Green;
-
-        if (!string.IsNullOrEmpty(workDx) &&
-            (hitDx.Equals(workDx, StringComparison.OrdinalIgnoreCase) ||
-             message.Contains(workDx, StringComparison.OrdinalIgnoreCase)))
+        // Only the transmitter we are working in a live directed QSO. Not message text, not a stale DX box.
+        if (activeQso.Length > 0 && hitDx.Equals(activeQso, StringComparison.OrdinalIgnoreCase))
             return Green;
 
         if (previouslyWorked)

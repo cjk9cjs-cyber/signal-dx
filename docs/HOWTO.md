@@ -73,7 +73,6 @@ Pick one backend.
 Useful CAT options:
 
 - **PTT on TX** — key the radio when Signal DX transmits.
-- **CAT RF power** — push the stored power value vs Max watts as RFPOWER on TX.
 - Main window **Drive %** — PC playback level into the radio. On a direct Hamlib connection it does not change the radio mic gain.
 
 ### E. Band and mode
@@ -127,6 +126,8 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 | **Status bar** | CAT, TX/RX state, decode counts, Wanted hits |
 
 Double-click a Band Activity or RX row to load that station and arm TX (Enable TX turns on).
+
+Row colors in Band Activity and RX Frequency: **yellow** = answering or calling you, **green** = your own transmissions and the station you are in a QSO with right now (it goes back to normal when the QSO ends or you reset the sequencer), **red** = Wanted, muted and struck through = already logged.
 
 ---
 

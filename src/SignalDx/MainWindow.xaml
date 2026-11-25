@@ -26,10 +26,9 @@
         <Setter.Value>
           <MultiBinding Converter="{StaticResource WorkingCallBrushConverter}">
             <Binding Path="IsToMe"/>
-            <Binding Path="IsWorking"/>
             <Binding Path="DxCall"/>
             <Binding Path="Message"/>
-            <Binding Path="DataContext.DxCall" RelativeSource="{RelativeSource AncestorType=Window}"/>
+            <Binding Path="DataContext.ActiveQsoCall" RelativeSource="{RelativeSource AncestorType=Window}"/>
             <Binding Path="IsPreviouslyWorked"/>
           </MultiBinding>
         </Setter.Value>
