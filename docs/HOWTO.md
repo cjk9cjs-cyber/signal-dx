@@ -149,7 +149,7 @@ Leaving WSPR turns **Enable TX** off and clears beacon free-text so FT8 does not
 - FT8/FT4: ~200–3000 Hz, gated signal traces, 15 s (or 7.5 s) time marks.
 - WSPR-2: narrow 1400–1600 Hz passband, soft weak-signal traces, 2-minute marks.
 - Palettes under **Colors** / Settings → Display.
-- FT8/FT4 call signs appear along the bottom of the waterfall at each decode's frequency, for the last two decode slots (the older slot is dimmer). Wanted calls (call, state, or country) get a red background with white text. Calls to you or your active QSO partner get a green background with white text. Turn off under Settings → Display → **Show call signs on the waterfall**.
+- FT8/FT4 call signs appear along the bottom of the waterfall at each decode's frequency, for the last two decode slots (the older slot is dimmer). Wanted calls (call, state, or country) get a red background with white text. The station you are calling in the current QSO gets a green background with white text. A station that only called you, or a QSO that never started, stays the normal color. Turn off under Settings → Display → **Show call signs on the waterfall**.
 - Markers persist across mode changes and app restarts.
 
 ### Auto sequence

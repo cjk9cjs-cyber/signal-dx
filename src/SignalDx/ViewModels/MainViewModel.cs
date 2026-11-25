@@ -3105,12 +3105,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 hit.IsWanted = want is not null;
                 hit.IsUnverified = IsUnverifiedDecode(hit);
                 if (!string.IsNullOrWhiteSpace(hit.DxCall))
-                {
-                    var tone = hit.IsWanted ? CallSignTone.Wanted
-                        : hit.IsToMe || hit.IsWorking ? CallSignTone.Active
-                        : CallSignTone.Normal;
-                    _waterfall?.AddCallSign(hit.DxCall, hit.Hz, hit.Utc, tone);
-                }
+                    _waterfall?.AddCallSign(hit.DxCall, hit.Hz, hit.Utc, WaterfallToneFor(hit));
                 Activity.Insert(0, hit);
                 if (Activity.Count > 500)
                     Activity.RemoveAt(Activity.Count - 1);
@@ -3410,6 +3405,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (call.Equals(DxCall?.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
         return !KnownCallsigns.Contains(call);
     }
+
+    /// <summary>
+    /// Waterfall green is only the station we are calling right now.
+    /// A station that called us, a stale DX call, or a QSO that never started does not qualify.
+    /// </summary>
+    CallSignTone WaterfallToneFor(DecodeHit hit)
+    {
+        if (hit.IsWanted) return CallSignTone.Wanted;
+        if (!IsActiveDirectedQso()) return CallSignTone.Normal;
+
+        string work = _seq.DxCall.Trim();
+        string theirs = hit.DxCall?.Trim() ?? "";
+        return theirs.Equals(work, StringComparison.OrdinalIgnoreCase)
+            ? CallSignTone.Active
+            : CallSignTone.Normal;
+    }
+
+    bool IsActiveDirectedQso() =>
+        !string.IsNullOrWhiteSpace(_seq.DxCall) &&
+        _seq.Phase is QsoPhase.CallingDx or QsoPhase.SentReport or QsoPhase.SentRogerReport
+            or QsoPhase.Sent73 or QsoPhase.SendingSeventyThree;
 
     void MarkWorkingFlags(DecodeHit hit)
     {
