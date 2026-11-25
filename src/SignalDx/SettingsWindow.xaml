@@ -329,7 +329,7 @@
                                helpers:PasswordBoxBinder.BoundPassword="{Binding QrzPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                 </Grid>
                 <TextBlock Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           Text="QRZ.com login for XML callsign lookup. Full name/grid/country needs a QRZ Logbook Data subscription. Double-click an RX row or use Open to view the call on qrz.com."/>
+                           Text="QRZ.com login for XML callsign lookup. Full name/grid/country needs a QRZ Logbook Data subscription. Double-click an RX row or use the QRZ button to view the call on qrz.com."/>
               </StackPanel>
             </Border>
           </StackPanel>

@@ -163,8 +163,6 @@
           <TextBox Width="50" Text="{Binding Report, UpdateSourceTrigger=PropertyChanged}"/>
           <Button Content="QRZ" Command="{Binding LookupQrzCommand}" Margin="8,0,0,0"
                   ToolTip="Open DX call on qrz.com in your browser"/>
-          <Button Content="Open" Command="{Binding OpenQrzCommand}" Margin="4,0,0,0"
-                  ToolTip="Open DX call on qrz.com in your browser"/>
           <TextBlock Text="{Binding QrzInfoText}" Margin="10,0,0,0" VerticalAlignment="Center"
                      Foreground="{StaticResource GoodBrush}" TextTrimming="CharacterEllipsis"
                      MaxWidth="420" ToolTip="{Binding QrzInfoText}"/>
@@ -371,7 +369,7 @@
           </Border>
           <Grid>
           <controls:WaterfallControl x:Name="Waterfall"/>
-          <DockPanel Margin="8,6,8,30" IsHitTestVisible="False">
+          <DockPanel Margin="8,6,8,30" IsHitTestVisible="False" LastChildFill="False">
             <TextBlock DockPanel.Dock="Top" Foreground="#6F86A8" FontSize="11">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">

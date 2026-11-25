@@ -68,6 +68,9 @@ public sealed class WaterfallControl : FrameworkElement
     int _averageCount = 1;
     float _noiseFloor = -90;
     float _signalCeil = -25;
+    float _plotFloor = -90;
+    float _plotCeil = -30;
+    bool _plotScaleInit;
     float[] _specRaw;
     float[] _specShown;
     double[] _specAcc;
@@ -302,6 +305,7 @@ public sealed class WaterfallControl : FrameworkElement
     {
         _noiseFloor = -90;
         _signalCeil = -25;
+        _plotScaleInit = false;
         FillBackground(resetTimeMarks: true);
     }
 
@@ -655,8 +659,8 @@ public sealed class WaterfallControl : FrameworkElement
         }
 
         const double pad = 4;
-        float bottom = _noiseFloor - 4f;
-        float top = Math.Max(_signalCeil + 4f, bottom + 30f);
+        float bottom = _plotFloor - 3f;
+        float top = Math.Max(_plotCeil + 3f, bottom + 20f);
         double usable = Math.Max(1, plotH - pad * 2);
 
         double Y(float db)
@@ -1016,6 +1020,30 @@ public sealed class WaterfallControl : FrameworkElement
     void UpdateSpectrumPlot(long slotIndex)
     {
         if (!_showSpectrum || _width < 2) return;
+        BuildSpectrumTrace(slotIndex);
+        UpdatePlotScale();
+    }
+
+    void UpdatePlotScale()
+    {
+        int n = _width;
+        Array.Copy(_specSmooth, _noiseScratch, n);
+        Array.Sort(_noiseScratch, 0, n);
+        float low = _noiseScratch[(int)(n * 0.20)];
+        float high = _noiseScratch[n - 1];
+        if (!_plotScaleInit)
+        {
+            _plotFloor = low;
+            _plotCeil = high;
+            _plotScaleInit = true;
+            return;
+        }
+        _plotFloor = _plotFloor * 0.90f + low * 0.10f;
+        _plotCeil = high > _plotCeil ? high : _plotCeil * 0.97f + high * 0.03f;
+    }
+
+    void BuildSpectrumTrace(long slotIndex)
+    {
 
         if (slotIndex != _specSlot)
         {

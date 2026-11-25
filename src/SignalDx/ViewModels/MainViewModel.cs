@@ -258,10 +258,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         LookupQrzCommand = new RelayCommand(
             () => LookupQrzInBrowser(),
             () => !string.IsNullOrWhiteSpace(ResolveQrzCall()));
-        OpenQrzCommand = new RelayCommand(
-            () => LookupQrzInBrowser(),
-            () => !string.IsNullOrWhiteSpace(ResolveQrzCall()));
-
         _cat.StatusChanged += s => Application.Current.Dispatcher.BeginInvoke(() => CatStatus = s);
         // Radio VFO is source of truth for Dial/Band — follow CAT frequency changes.
         _cat.FrequencyChanged += hz => Application.Current.Dispatcher.BeginInvoke(() =>
@@ -393,7 +389,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand SetRigFreqCommand { get; }
     public ICommand SetRigModeCommand { get; }
     public ICommand LookupQrzCommand { get; }
-    public ICommand OpenQrzCommand { get; }
     public ICommand TogglePttCommand { get; }
     public ICommand RefreshRigCommand { get; }
     public ICommand FindRigctldCommand { get; }
