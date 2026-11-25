@@ -74,7 +74,7 @@ Useful CAT options:
 
 - **PTT on TX** — key the radio when Signal DX transmits.
 - **CAT RF power** — push Power (W) vs Max watts as RFPOWER.
-- Main window **Drive %** — TX audio drive / soft ALC into the radio.
+- Main window **Drive %** — PC playback level into the radio. On a direct Hamlib connection it does not change the radio mic gain.
 
 ### E. Band and mode
 

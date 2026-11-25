@@ -103,24 +103,9 @@ public sealed class HamlibTcpCatController : ICatController
             .ConfigureAwait(false);
     }
 
-    public async Task SetAudioDriveAsync(double level01, CancellationToken ct = default)
-    {
-        double v = Math.Clamp(level01, 0, 1);
-        string s = v.ToString(CultureInfo.InvariantCulture);
-        // Try common Hamlib TX-audio levels; first success wins.
-        foreach (var name in new[] { "MICGAIN", "AF", "USB_AF", "COMP" })
-        {
-            try
-            {
-                await EnsureOkAsync($"L {name} {s}", ct).ConfigureAwait(false);
-                return;
-            }
-            catch
-            {
-                // try next
-            }
-        }
-    }
+    // Drive is the PC playback level. Do not write MICGAIN or any other radio audio level.
+    public Task SetAudioDriveAsync(double level01, CancellationToken ct = default) =>
+        Task.CompletedTask;
 
     public async Task<double?> GetRfPowerAsync(CancellationToken ct = default) =>
         await GetLevelAsync("RFPOWER", ct).ConfigureAwait(false);

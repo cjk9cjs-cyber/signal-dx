@@ -1415,7 +1415,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         float gain = Math.Clamp(percent / 100f, 0f, 1f);
         _playback.Gain = gain;
         ApplyDriveToAlcMeter();
-        // Also push MIC/USB/DATA level over CAT when the radio exposes it (HRD/Hamlib).
+        // HRD may map this onto a radio slider. Hamlib ignores it so Drive stays on the PC.
         if (_cat.IsConnected)
             _ = _cat.SetAudioDriveAsync(gain);
     }

@@ -140,7 +140,7 @@
                     IsMoveToPointEnabled="True" IsSnapToTickEnabled="False"
                     VerticalAlignment="Center" MinHeight="22"
                     Value="{Binding TxDrivePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    ToolTip="TX audio drive (0–100%). Moves live during TX and sets radio MIC/USB level over CAT when available."/>
+                    ToolTip="PC TX audio level (0–100%). A direct Hamlib radio does not get a mic-gain change. HRD is unchanged."/>
             <TextBlock Text="{Binding RxLevelText}" Margin="12,0,0,0" VerticalAlignment="Center"
                        Foreground="{StaticResource GoodBrush}" MinWidth="72"
                        ToolTip="RX audio input level (dB FS) — aim for mid-scale with Monitor running"/>

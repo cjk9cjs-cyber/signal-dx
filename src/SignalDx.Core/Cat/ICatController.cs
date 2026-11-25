@@ -26,7 +26,7 @@ public interface ICatController : IAsyncDisposable
     Task SetModeUsbAsync(CancellationToken ct = default);
     Task SetModeAsync(string mode, int passbandHz = 0, CancellationToken ct = default);
     Task SetRfPowerAsync(double level01, CancellationToken ct = default);
-    /// <summary>Set TX audio / mic / USB-DATA drive 0–1 for ALC tuning when the radio exposes it.</summary>
+    /// <summary>Optional radio audio level 0–1. Hamlib ignores this so Drive stays on the PC. HRD may still set a matching slider.</summary>
     Task SetAudioDriveAsync(double level01, CancellationToken ct = default);
     Task<double?> GetRfPowerAsync(CancellationToken ct = default);
     Task<double?> GetAlcAsync(CancellationToken ct = default);
