@@ -29,10 +29,12 @@ public sealed class WaterfallControl : FrameworkElement
     const int MaxBitmapWidth = 2800;
     const int MinBitmapHeight = 320;
     const int MaxBitmapHeight = 640;
-    /// <summary>dB above noise before a pixel leaves the solid background (FT8/FT4).</summary>
-    const float SignalGateDb = 6.5f;
-    /// <summary>Lower gate so weak WSPR traces (−28 dB class) still paint.</summary>
-    const float WsprSignalGateDb = 3.0f;
+    /// <summary>dB above the quiet-floor before a pixel can leave the solid background (FT8/FT4).</summary>
+    const float SignalGateDb = 10f;
+    /// <summary>Lower gate so weak WSPR traces (−28 dB class) can still accumulate.</summary>
+    const float WsprSignalGateDb = 4.5f;
+    /// <summary>Frames a bin must stay hot before it is drawn. Noise peaks fail this; a real trace does not.</summary>
+    const int TraceHold = 4;
     /// <summary>Horizontal time-mark period (15 FT8, 7 FT4, 120 WSPR-2).</summary>
     int _slotSeconds = 15;
     bool _wsprDisplay;
@@ -43,6 +45,8 @@ public sealed class WaterfallControl : FrameworkElement
     byte[] _pixels;
     float[] _column;
     float[] _display;
+    float[] _noiseScratch;
+    byte[] _hold;
     float _noiseFloor = -90;
     float _signalCeil = -25;
     long? _lastSlotIndex;
@@ -87,6 +91,8 @@ public sealed class WaterfallControl : FrameworkElement
         _pixels = new byte[_width * _height * 4];
         _column = new float[_width];
         _display = new float[_width];
+        _noiseScratch = new float[_width];
+        _hold = new byte[_width];
         FillBackground();
 
         Focusable = true;
@@ -320,6 +326,8 @@ public sealed class WaterfallControl : FrameworkElement
         _pixels = new byte[_width * _height * 4];
         _column = new float[_width];
         _display = new float[_width];
+        _noiseScratch = new float[_width];
+        _hold = new byte[_width];
         FillBackground(resetTimeMarks: false);
 
         // Preserve as much history as possible when resizing.
@@ -724,9 +732,6 @@ public sealed class WaterfallControl : FrameworkElement
         if (bins < 2) return;
 
         float peak = -120;
-        // Sample every Nth pixel for a cheap noise estimate (ignore the strongest bins).
-        float noiseAcc = 0;
-        int noiseN = 0;
         for (int x = 0; x < _width; x++)
         {
             double hz = MinHz + (MaxHz - MinHz) * x / Math.Max(1, _width - 1);
@@ -736,11 +741,6 @@ public sealed class WaterfallControl : FrameworkElement
                 : magnitudesDb[Math.Clamp((int)Math.Round(bin), 0, bins - 1)];
             _column[x] = db;
             if (db > peak) peak = db;
-            if ((x & 3) == 0)
-            {
-                noiseAcc += db;
-                noiseN++;
-            }
         }
 
         // Narrow WSPR band: light 3-tap smooth so FFT bins don't paint as fat blocks.
@@ -758,17 +758,23 @@ public sealed class WaterfallControl : FrameworkElement
             }
         }
 
-        // Robust-ish floor: average of subsampled bins, then bias a bit below so noise stays blank.
-        float gate = ActiveGateDb;
-        float avg = noiseN > 0 ? noiseAcc / noiseN : peak - 25f;
-        float targetFloor = avg - (_wsprDisplay ? 2.5f : 1.5f);
-        _noiseFloor = _noiseFloor * 0.92f + targetFloor * 0.08f;
+        // Quiet percentile, not the average. Signals and noise peaks sit above it,
+        // so the floor stays put and the empty band stays one solid color.
+        float quiet = QuietFloor(_column);
+        _noiseFloor = _noiseFloor * 0.90f + quiet * 0.10f;
         _signalCeil = Math.Max(peak, _signalCeil * 0.97f + peak * 0.03f);
-        if (_signalCeil < _noiseFloor + gate + 12f)
-            _signalCeil = _noiseFloor + gate + 12f;
-        float maxDyn = _wsprDisplay ? 35f : 45f;
-        if (_signalCeil - _noiseFloor > maxDyn)
-            _noiseFloor = _signalCeil - maxDyn;
+        if (_signalCeil < _noiseFloor + ActiveGateDb + 12f)
+            _signalCeil = _noiseFloor + ActiveGateDb + 12f;
+    }
+
+    float QuietFloor(float[] column)
+    {
+        int n = 0;
+        for (int x = 0; x < _width; x++)
+            _noiseScratch[n++] = column[x];
+        if (n == 0) return _noiseFloor;
+        Array.Sort(_noiseScratch, 0, n);
+        return _noiseScratch[(int)(n * 0.30)];
     }
 
     static float SampleBinInterpolated(IReadOnlyList<float> magnitudesDb, double bin)
@@ -782,43 +788,34 @@ public sealed class WaterfallControl : FrameworkElement
     }
 
     /// <summary>
-    /// Gate noise to empty. FT8 keeps sharp pixel columns; WSPR paints soft continuous intensity.
+    /// Solid background everywhere a bin is not a lasting trace. A noise peak is one frame;
+    /// an FT8/WSPR tone stays on the same pixels and is drawn as a continuous wave.
     /// </summary>
     void BuildDisplayColumn()
     {
         float gate = _noiseFloor + ActiveGateDb;
-        if (_wsprDisplay)
+        float instant = gate + (_wsprDisplay ? 8f : 9f);
+        for (int x = 0; x < _width; x++)
         {
-            for (int x = 0; x < _width; x++)
-            {
-                float v = _column[x];
-                _display[x] = v >= gate ? v : float.NegativeInfinity;
-            }
-            return;
+            if (_column[x] >= gate)
+                _hold[x] = (byte)Math.Min(8, _hold[x] + 2);
+            else if (_hold[x] > 0)
+                _hold[x]--;
         }
 
         for (int x = 0; x < _width; x++)
         {
             float v = _column[x];
-            if (v < gate)
+            bool lasting = _hold[x] >= TraceHold || v >= instant;
+            if (!lasting && v >= gate - 2f)
             {
-                _display[x] = float.NegativeInfinity; // → solid background
-                continue;
+                int left = x > 0 ? _hold[x - 1] : 0;
+                int right = x + 1 < _width ? _hold[x + 1] : 0;
+                // Shoulder of an established trace, so the wave stays continuous as it drifts.
+                lasting = left >= TraceHold + 2 || right >= TraceHold + 2;
             }
 
-            float left = x > 0 ? _column[x - 1] : v;
-            float right = x + 1 < _width ? _column[x + 1] : v;
-            // Prefer ridge pixels so FT8 tones read as thin vertical lines.
-            bool localPeak = v >= left && v >= right;
-            bool nearPeak = v >= left - 1.2f && v >= right - 1.2f;
-            if (localPeak)
-                _display[x] = v;
-            else if (nearPeak && v >= gate + 2f)
-                _display[x] = v - 1.5f; // dim side of a trace
-            else if (v >= gate + 5f)
-                _display[x] = v - 3f; // strong energy that isn't a sharp peak
-            else
-                _display[x] = float.NegativeInfinity;
+            _display[x] = lasting ? v : float.NegativeInfinity;
         }
     }
 
@@ -881,6 +878,8 @@ public sealed class WaterfallControl : FrameworkElement
         }
         if (resetTimeMarks)
             ClearTimeMarks();
+        if (_hold is not null)
+            Array.Clear(_hold);
         _bitmap.WritePixels(new Int32Rect(0, 0, _width, _height), _pixels, _width * 4, 0);
         InvalidateVisual();
     }
