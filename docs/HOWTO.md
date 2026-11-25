@@ -73,7 +73,7 @@ Pick one backend.
 Useful CAT options:
 
 - **PTT on TX** — key the radio when Signal DX transmits.
-- Main window **Drive %** — PC playback level into the radio. On a direct Hamlib connection it does not change the radio mic gain.
+- Main window **Drive %** — PC playback level into the radio. On a direct Hamlib connection it does not change the radio mic gain. Every TX uses the exact Drive value (no hidden minimum), and keying TX does not reset the radio's own USB/DATA level, so a level you set for clean ALC holds from one transmission to the next.
 
 ### E. Band and mode
 

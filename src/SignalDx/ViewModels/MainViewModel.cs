@@ -3865,7 +3865,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0.15, 1);
+            float drive = (float)Math.Clamp(TxDrivePercent / 100.0, 0, 1);
             // Up to 60s continuous carrier at Tx Hz for SWR / ALC.
             float[] audio = Ft8ToneGenerator.GenerateConstantTone(TxHz, seconds: 60, drive01: 1.0);
 
@@ -3875,7 +3875,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 : _settings.OutputDeviceName;
 
             await EnsureDigiModeAsync();
-            float playGain = Math.Clamp(Math.Max(drive, 0.35f), 0, 1);
+            float playGain = drive;
             _playback.PlayMono(
                 audio,
                 AudioCaptureService.SampleRate,
@@ -4013,13 +4013,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 if (a > peak) peak = a;
             }
 
-            ApplyDriveLevel(_settings.TxDrivePercent);
+            // Do not re-push Drive to CAT here: it would overwrite a radio/HRD level set by hand.
+            ApplyDriveToAlcMeter();
 
             // USB digi radios (FT-710 etc.) need DATA-U / PKTUSB — plain USB often keys RF with no USB audio.
             string digiMode = await EnsureDigiModeAsync();
 
             // Start USB audio first so the codec stream is running, then key PTT.
-            float playGain = Math.Clamp(Math.Max(drive, 0.35f), 0, 1);
+            // Use Drive exactly so a level set for clean ALC holds on the next TX.
+            float playGain = drive;
             _playback.PlayMono(
                 audio,
                 AudioCaptureService.SampleRate,
