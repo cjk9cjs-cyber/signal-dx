@@ -1787,6 +1787,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        bool continuingQso =
+            !string.IsNullOrWhiteSpace(_seq.DxCall) &&
+            _seq.DxCall.Equals(DxCall, StringComparison.OrdinalIgnoreCase) &&
+            _seq.Phase is QsoPhase.CallingDx or QsoPhase.SentReport
+                or QsoPhase.SentRogerReport or QsoPhase.Sent73
+                or QsoPhase.SendingSeventyThree;
+        if (!continuingQso)
+        {
+            // New station: RX pane starts fresh and shows only this call from here on.
+            SelectedRxDecode = null;
+            RxActivity.Clear();
+            _rxHistorySuppressed = true;
+        }
+
         // Stale WSPR FreeText after a mode switch must not block FT8 arming.
         bool staleWsprText = LooksLikeWsprFreeText(FreeText);
 
