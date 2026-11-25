@@ -128,12 +128,6 @@
                      KeyDown="Dial_OnKeyDown"
                      ToolTip="Dial in MHz — type a frequency and press Enter to tune the radio (CAT)"/>
             <Label Content="MHz" Margin="2,0,0,0"/>
-            <Label Content="Power" Margin="8,0,0,0"
-                   Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
-            <TextBox Width="50" Text="{Binding TxPower, UpdateSourceTrigger=PropertyChanged}"
-                     Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
-            <Label Content="W" Margin="2,0,0,0"
-                   Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
             <Label Content="{Binding TxDriveLabel}" Margin="12,0,4,0" MinWidth="88"
                    Foreground="{StaticResource WarnBrush}"/>
             <Slider Width="160" Minimum="0" Maximum="100" TickFrequency="1"

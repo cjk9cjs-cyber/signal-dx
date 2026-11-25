@@ -73,7 +73,7 @@ Pick one backend.
 Useful CAT options:
 
 - **PTT on TX** — key the radio when Signal DX transmits.
-- **CAT RF power** — push Power (W) vs Max watts as RFPOWER.
+- **CAT RF power** — push the stored power value vs Max watts as RFPOWER on TX.
 - Main window **Drive %** — PC playback level into the radio. On a direct Hamlib connection it does not change the radio mic gain.
 
 ### E. Band and mode
@@ -186,7 +186,7 @@ Double-click remains a manual override to work a specific station.
 ### WSPR-2
 
 1. Mode **WSPR2** → Apply a WSPR band preset.
-2. Set **Tx %** (e.g. 20–25), **Power** (dBm), and audio **Tx Hz** (avoid a crowded 1500 Hz if busy).
+2. Set **Tx %** (e.g. 20–25) and audio **Tx Hz** (avoid a crowded 1500 Hz if busy).
 3. **Enable TX** to allow scheduled beacons; **Tx next** forces the next 2-minute slot once.
 4. **Upload spots** / PSK Reporter send heard beacons when configured.
 5. Return to FT8/FT4 when finished — beacon state is cleared and Enable TX is turned off.
