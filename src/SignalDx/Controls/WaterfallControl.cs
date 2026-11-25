@@ -856,7 +856,7 @@ public sealed class WaterfallControl : FrameworkElement
     void DrawFrequencyScaleBar(DrawingContext dc)
     {
         double y0 = WaterfallHeight;
-        double h = Math.Max(0, ActualHeight - y0);
+        double h = ScaleBarHeight;
         if (h < 4 || ActualWidth <= 0) return;
 
         dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0A, 0x12, 0x20)), null,
