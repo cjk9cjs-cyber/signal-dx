@@ -862,7 +862,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// WSJT-X wide-graph controls. Bins/Pixel 4 is the whole passband; 1 is the narrowest zoom.
+    /// Waterfall display limits and the Hz covered by one Bins/Pixel step.
+    /// FT8/FT4: 0–4500 Hz in 750 Hz steps (4 = 3000 Hz, e.g. 100–3100 from Start 100).
+    /// WSPR: 1400–1600 Hz in 50 Hz steps.
+    /// </summary>
+    (double Min, double Max, double Unit) WaterfallRange =>
+        IsWsprMode ? (1400, 1600, 50) : (0, 4500, 750);
+
+    double WaterfallSpanHz()
+    {
+        var (min, max, unit) = WaterfallRange;
+        return Math.Min(max - min, unit * WaterfallBinsPerPixel);
+    }
+
+    /// <summary>
+    /// WSJT-X wide-graph controls. Bins/Pixel sets how many Hz are visible; Start sets the left edge.
     /// </summary>
     void ApplyWaterfallControls(bool resetView)
     {
@@ -872,12 +886,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _waterfall.Zero = WaterfallZero;
         _waterfall.Flatten = WaterfallFlatten;
         _waterfall.AverageCount = WaterfallAvg;
+        _waterfall.RowsPerSecond = WaterfallRowsPerSecond;
+        _waterfall.ShowSpectrum = ShowSpectrumPlot;
+        _waterfall.SpectrumMode = ParseSpectrumTrace(SelectedSpectrumMode);
+        _waterfall.SpectrumSmooth = SpectrumSmooth;
 
-        double passMin = IsWsprMode ? 1400 : 200;
-        double passMax = IsWsprMode ? 1600 : 3000;
-        double full = passMax - passMin;
-        int bins = Math.Clamp(WaterfallBinsPerPixel, 1, 4);
-        double span = full * bins / 4.0;
+        var (passMin, passMax, _) = WaterfallRange;
+        double span = WaterfallSpanHz();
         double start = WaterfallStartHz;
         if (start < passMin) start = passMin;
         if (start + span > passMax) start = Math.Max(passMin, passMax - span);
@@ -1277,7 +1292,71 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public IReadOnlyList<int> WaterfallAvgChoices { get; } = [1, 2, 3, 4, 5, 6, 7, 8];
-    public IReadOnlyList<int> WaterfallBinsChoices { get; } = [1, 2, 3, 4];
+    public IReadOnlyList<int> WaterfallBinsChoices { get; } = [1, 2, 3, 4, 5, 6];
+    public IReadOnlyList<int> WaterfallRateChoices { get; } = [1, 2, 3, 5, 8, 12, 25];
+    public IReadOnlyList<string> SpectrumModeChoices { get; } = ["Current", "Cumulative", "Linear Avg"];
+    public IReadOnlyList<int> SpectrumSmoothChoices { get; } = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+    public int WaterfallRowsPerSecond
+    {
+        get
+        {
+            int v = _settings.WaterfallRowsPerSecond;
+            return WaterfallRateChoices.Contains(v) ? v : 25;
+        }
+        set
+        {
+            if (!WaterfallRateChoices.Contains(value) || _settings.WaterfallRowsPerSecond == value) return;
+            _settings.WaterfallRowsPerSecond = value;
+            if (_waterfall is not null) _waterfall.RowsPerSecond = value;
+            Raise();
+        }
+    }
+
+    public bool ShowSpectrumPlot
+    {
+        get => _settings.ShowSpectrumPlot;
+        set
+        {
+            if (_settings.ShowSpectrumPlot == value) return;
+            _settings.ShowSpectrumPlot = value;
+            if (_waterfall is not null) _waterfall.ShowSpectrum = value;
+            Raise();
+        }
+    }
+
+    public string SelectedSpectrumMode
+    {
+        get => SpectrumModeChoices.Contains(_settings.SpectrumPlotMode) ? _settings.SpectrumPlotMode : "Current";
+        set
+        {
+            if (string.IsNullOrEmpty(value) || !SpectrumModeChoices.Contains(value)
+                || _settings.SpectrumPlotMode == value) return;
+            _settings.SpectrumPlotMode = value;
+            if (_waterfall is not null) _waterfall.SpectrumMode = ParseSpectrumTrace(value);
+            Raise();
+        }
+    }
+
+    public int SpectrumSmooth
+    {
+        get => Math.Clamp(_settings.SpectrumPlotSmooth, 1, 9);
+        set
+        {
+            int v = Math.Clamp(value, 1, 9);
+            if (_settings.SpectrumPlotSmooth == v) return;
+            _settings.SpectrumPlotSmooth = v;
+            if (_waterfall is not null) _waterfall.SpectrumSmooth = v;
+            Raise();
+        }
+    }
+
+    static SpectrumTrace ParseSpectrumTrace(string name) => name switch
+    {
+        "Cumulative" => SpectrumTrace.Cumulative,
+        "Linear Avg" => SpectrumTrace.LinearAverage,
+        _ => SpectrumTrace.Current
+    };
 
     public int WaterfallGain
     {
@@ -1332,10 +1411,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public int WaterfallBinsPerPixel
     {
-        get => Math.Clamp(_settings.WaterfallBinsPerPixel == 0 ? 4 : _settings.WaterfallBinsPerPixel, 1, 4);
+        get => Math.Clamp(_settings.WaterfallBinsPerPixel == 0 ? 4 : _settings.WaterfallBinsPerPixel, 1, 6);
         set
         {
-            int v = Math.Clamp(value, 1, 4);
+            int v = Math.Clamp(value, 1, 6);
             if (_settings.WaterfallBinsPerPixel == v) return;
             _settings.WaterfallBinsPerPixel = v;
             Raise();
@@ -1349,16 +1428,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get
         {
             int raw = IsWsprMode ? _settings.WsprWaterfallStartHz : _settings.DigiWaterfallStartHz;
-            double passMin = IsWsprMode ? 1400 : 200;
-            double passMax = IsWsprMode ? 1600 : 3000;
-            double span = (passMax - passMin) * WaterfallBinsPerPixel / 4.0;
+            var (passMin, passMax, _) = WaterfallRange;
+            double span = WaterfallSpanHz();
             return (int)Math.Clamp(raw, passMin, Math.Max(passMin, passMax - span));
         }
         set
         {
-            double passMin = IsWsprMode ? 1400 : 200;
-            double passMax = IsWsprMode ? 1600 : 3000;
-            double span = (passMax - passMin) * WaterfallBinsPerPixel / 4.0;
+            var (passMin, passMax, _) = WaterfallRange;
+            double span = WaterfallSpanHz();
             int v = (int)Math.Clamp(value, passMin, Math.Max(passMin, passMax - span));
             if (IsWsprMode)
             {
@@ -2335,6 +2412,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     void OnWaterfallFrequencyPicked(object? sender, FrequencyPickEventArgs e)
     {
         int hz = e.Hz;
+        // The waterfall can show more than the usable audio range; picks stay inside it.
+        if (!IsWsprMode)
+            hz = Math.Clamp(hz, 200, 3000);
 
         if (e.SnapToDecode)
         {

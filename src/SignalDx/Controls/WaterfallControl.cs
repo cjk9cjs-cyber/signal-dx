@@ -22,9 +22,20 @@ public enum CallSignTone
     Wanted
 }
 
+/// <summary>Trace drawn in the spectrum plot above the waterfall.</summary>
+public enum SpectrumTrace
+{
+    Current,
+    Cumulative,
+    LinearAverage
+}
+
 public sealed class WaterfallControl : FrameworkElement
 {
     const double ScaleBarHeight = 26;
+    const double MinWaterfallHeight = 120;
+    const double MinPlotHeight = 48;
+    const double MaxPlotHeight = 150;
     const int MinBitmapWidth = 800;
     const int MaxBitmapWidth = 2800;
     const int MinBitmapHeight = 320;
@@ -57,6 +68,17 @@ public sealed class WaterfallControl : FrameworkElement
     int _averageCount = 1;
     float _noiseFloor = -90;
     float _signalCeil = -25;
+    float[] _specRaw;
+    float[] _specShown;
+    double[] _specAcc;
+    float[] _specSmooth;
+    int _specCount;
+    long _specSlot = -1;
+    long _lastRowTicks;
+    int _rowsPerSecond = 25;
+    bool _showSpectrum = true;
+    SpectrumTrace _spectrumMode = SpectrumTrace.Current;
+    int _spectrumSmooth = 1;
     long? _lastSlotIndex;
     readonly List<(int AgeRows, DateTime SlotLocal)> _timeMarks = new();
     readonly List<CallSignMark> _callSigns = new();
@@ -101,6 +123,10 @@ public sealed class WaterfallControl : FrameworkElement
         _display = new float[_width];
         _noiseScratch = new float[_width];
         _hold = new byte[_width];
+        _specRaw = new float[_width];
+        _specShown = new float[_width];
+        _specSmooth = new float[_width];
+        _specAcc = new double[_width];
         FillBackground();
 
         Focusable = true;
@@ -217,6 +243,46 @@ public sealed class WaterfallControl : FrameworkElement
         }
     }
 
+    /// <summary>Waterfall scroll speed in rows per second. Spectra between rows still feed the plot and averaging.</summary>
+    public int RowsPerSecond
+    {
+        get => _rowsPerSecond;
+        set => _rowsPerSecond = Math.Clamp(value, 1, 25);
+    }
+
+    /// <summary>Spectrum plot above the waterfall (WSJT-X Wide Graph spectrum).</summary>
+    public bool ShowSpectrum
+    {
+        get => _showSpectrum;
+        set
+        {
+            if (_showSpectrum == value) return;
+            _showSpectrum = value;
+            EnsureBitmapMatchesLayout();
+            InvalidateVisual();
+        }
+    }
+
+    public SpectrumTrace SpectrumMode
+    {
+        get => _spectrumMode;
+        set
+        {
+            if (_spectrumMode == value) return;
+            _spectrumMode = value;
+            _specCount = 0;
+            Array.Clear(_specAcc);
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Spectrum plot smoothing, 1 = off.</summary>
+    public int SpectrumSmooth
+    {
+        get => _spectrumSmooth;
+        set => _spectrumSmooth = Math.Clamp(value, 1, 9);
+    }
+
     public bool ShowCallSigns
     {
         get => _showCallSigns;
@@ -252,6 +318,17 @@ public sealed class WaterfallControl : FrameworkElement
         BuildDisplayColumn();
 
         var now = DateTime.Now;
+        UpdateSpectrumPlot(SlotIndex(now));
+
+        long rowInterval = TimeSpan.TicksPerSecond / Math.Max(1, _rowsPerSecond);
+        // Allow a little jitter so 25 rows/s is not throttled to 20 by the 40 ms timer.
+        if (_lastRowTicks != 0 && now.Ticks - _lastRowTicks < rowInterval - TimeSpan.TicksPerMillisecond * 8)
+        {
+            InvalidateVisual();
+            return;
+        }
+        _lastRowTicks = now.Ticks;
+
         long slot = SlotIndex(now);
         bool slotBoundary = _lastSlotIndex is long prev && prev != slot;
         _lastSlotIndex = slot;
@@ -373,6 +450,11 @@ public sealed class WaterfallControl : FrameworkElement
         _display = new float[_width];
         _noiseScratch = new float[_width];
         _hold = new byte[_width];
+        _specRaw = new float[_width];
+        _specShown = new float[_width];
+        _specSmooth = new float[_width];
+        _specAcc = new double[_width];
+        _specCount = 0;
         FillBackground(resetTimeMarks: false);
 
         // Preserve as much history as possible when resizing.
@@ -501,7 +583,18 @@ public sealed class WaterfallControl : FrameworkElement
         InvalidateVisual();
     }
 
-    double WaterfallHeight => Math.Max(1, ActualHeight - ScaleBarHeight);
+    double PlotHeight
+    {
+        get
+        {
+            if (!_showSpectrum) return 0;
+            double room = ActualHeight - ScaleBarHeight - MinWaterfallHeight;
+            if (room < MinPlotHeight) return 0;
+            return Math.Min(room, Math.Clamp(ActualHeight * 0.22, MinPlotHeight, MaxPlotHeight));
+        }
+    }
+
+    double WaterfallHeight => Math.Max(1, ActualHeight - ScaleBarHeight - PlotHeight);
 
     int XToHz(double x)
     {
@@ -525,6 +618,105 @@ public sealed class WaterfallControl : FrameworkElement
     }
 
     protected override void OnRender(DrawingContext dc)
+    {
+        double plotH = PlotHeight;
+        if (plotH > 0)
+            DrawSpectrumPlot(dc, plotH);
+
+        dc.PushTransform(new TranslateTransform(0, plotH));
+        RenderWaterfall(dc);
+        dc.Pop();
+    }
+
+    void DrawSpectrumPlot(DrawingContext dc, double plotH)
+    {
+        double w = ActualWidth;
+        if (w <= 0 || _width < 2) return;
+
+        dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x08, 0x10, 0x1C)), null, new Rect(0, 0, w, plotH));
+        dc.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(0x2A, 0x3A, 0x55)), 1),
+            new Point(0, plotH - 0.5), new Point(w, plotH - 0.5));
+
+        double span = MaxHz - MinHz;
+        if (span <= 0) return;
+
+        var gridPen = new Pen(new SolidColorBrush(Color.FromArgb(60, 0x6F, 0x86, 0xA8)), 1);
+        gridPen.Freeze();
+        int gridStep = _wsprDisplay || span <= 400 ? 20 : 100;
+        for (int hz = (int)Math.Ceiling(MinHz / gridStep) * gridStep; hz <= MaxHz; hz += gridStep)
+        {
+            double gx = HzToX(hz);
+            dc.DrawLine(gridPen, new Point(gx, 0), new Point(gx, plotH));
+        }
+        for (int i = 1; i < 4; i++)
+        {
+            double gy = plotH * i / 4.0;
+            dc.DrawLine(gridPen, new Point(0, gy), new Point(w, gy));
+        }
+
+        const double pad = 4;
+        float bottom = _noiseFloor - 4f;
+        float top = Math.Max(_signalCeil + 4f, bottom + 30f);
+        double usable = Math.Max(1, plotH - pad * 2);
+
+        double Y(float db)
+        {
+            double t = Math.Clamp((db - bottom) / (top - bottom), 0, 1);
+            return plotH - pad - t * usable;
+        }
+
+        var geo = new StreamGeometry();
+        using (var ctx = geo.Open())
+        {
+            ctx.BeginFigure(new Point(0, plotH - pad), true, true);
+            for (int x = 0; x < _width; x++)
+                ctx.LineTo(new Point(x * w / (_width - 1), Y(_specSmooth[x])), true, false);
+            ctx.LineTo(new Point(w, plotH - pad), true, false);
+        }
+        geo.Freeze();
+
+        var lineGeo = new StreamGeometry();
+        using (var ctx = lineGeo.Open())
+        {
+            ctx.BeginFigure(new Point(0, Y(_specSmooth[0])), false, false);
+            for (int x = 1; x < _width; x++)
+                ctx.LineTo(new Point(x * w / (_width - 1), Y(_specSmooth[x])), true, false);
+        }
+        lineGeo.Freeze();
+
+        var fill = new SolidColorBrush(Color.FromArgb(46, 0x3F, 0xC0, 0xE0));
+        fill.Freeze();
+        var linePen = new Pen(new SolidColorBrush(Color.FromRgb(0x7F, 0xD8, 0xF0)), 1.1);
+        linePen.Freeze();
+        dc.DrawGeometry(fill, null, geo);
+        dc.DrawGeometry(null, linePen, lineGeo);
+
+        var rxPen = new Pen(new SolidColorBrush(Color.FromRgb(0x3F, 0xC0, 0xE0)), 1.4);
+        dc.DrawLine(rxPen, new Point(HzToX(RxHz), 0), new Point(HzToX(RxHz), plotH));
+        if (!LockTxToRx || Math.Abs(TxHz - RxHz) > 1)
+        {
+            var txPen = new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x6C, 0x3F)), 1.4);
+            dc.DrawLine(txPen, new Point(HzToX(TxHz), 0), new Point(HzToX(TxHz), plotH));
+        }
+
+        string modeText = _spectrumMode switch
+        {
+            SpectrumTrace.Cumulative => "Cumulative",
+            SpectrumTrace.LinearAverage => "Linear Avg",
+            _ => "Current"
+        };
+        var ft = new FormattedText(
+            $"SPECTRUM — {modeText}",
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Cascadia Mono"),
+            10,
+            new SolidColorBrush(Color.FromRgb(0x6F, 0x86, 0xA8)),
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(ft, new Point(Math.Max(6, w - ft.Width - 8), 3));
+    }
+
+    void RenderWaterfall(DrawingContext dc)
     {
         double wfH = WaterfallHeight;
         // Draw onto a solid backdrop so empty/noise areas never show through as checker/pixel dirt.
@@ -787,6 +979,7 @@ public sealed class WaterfallControl : FrameworkElement
             if (db > peak) peak = db;
         }
 
+        Array.Copy(_column, _specRaw, _width);
         AverageColumn();
 
         // Round the ridge. A whole FFT bin is several pixels wide; without this the
@@ -818,6 +1011,66 @@ public sealed class WaterfallControl : FrameworkElement
         _signalCeil = Math.Max(peak, _signalCeil * 0.97f + peak * 0.03f);
         if (_signalCeil < _noiseFloor + ActiveGateDb + 12f)
             _signalCeil = _noiseFloor + ActiveGateDb + 12f;
+    }
+
+    void UpdateSpectrumPlot(long slotIndex)
+    {
+        if (!_showSpectrum || _width < 2) return;
+
+        if (slotIndex != _specSlot)
+        {
+            _specSlot = slotIndex;
+            if (_spectrumMode == SpectrumTrace.Cumulative)
+            {
+                _specCount = 0;
+                Array.Clear(_specAcc);
+            }
+        }
+
+        switch (_spectrumMode)
+        {
+            case SpectrumTrace.Cumulative:
+                _specCount++;
+                for (int x = 0; x < _width; x++)
+                    _specAcc[x] += Math.Pow(10.0, _specRaw[x] / 10.0);
+                for (int x = 0; x < _width; x++)
+                    _specShown[x] = (float)(10.0 * Math.Log10(_specAcc[x] / _specCount + 1e-20));
+                break;
+            case SpectrumTrace.LinearAverage:
+                {
+                    const double alpha = 0.12;
+                    for (int x = 0; x < _width; x++)
+                    {
+                        double p = Math.Pow(10.0, _specRaw[x] / 10.0);
+                        _specAcc[x] = _specCount == 0 ? p : _specAcc[x] + alpha * (p - _specAcc[x]);
+                        _specShown[x] = (float)(10.0 * Math.Log10(_specAcc[x] + 1e-20));
+                    }
+                    _specCount = 1;
+                    break;
+                }
+            default:
+                Array.Copy(_specRaw, _specShown, _width);
+                break;
+        }
+
+        int radius = (_spectrumSmooth - 1) * 2;
+        if (radius <= 0)
+        {
+            Array.Copy(_specShown, _specSmooth, _width);
+            return;
+        }
+
+        if (_prefix.Length < _width + 1)
+            _prefix = new double[_width + 1];
+        _prefix[0] = 0;
+        for (int i = 0; i < _width; i++)
+            _prefix[i + 1] = _prefix[i] + _specShown[i];
+        for (int x = 0; x < _width; x++)
+        {
+            int a = Math.Max(0, x - radius);
+            int b = Math.Min(_width - 1, x + radius);
+            _specSmooth[x] = (float)((_prefix[b + 1] - _prefix[a]) / (b - a + 1));
+        }
     }
 
     void AverageColumn()

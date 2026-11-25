@@ -58,7 +58,15 @@ public sealed class StationSettings
     public bool WaterfallFlatten { get; set; }
     /// <summary>WSJT-X N Avg. Spectra averaged before a row is drawn.</summary>
     public int WaterfallAvg { get; set; } = 1;
-    /// <summary>WSJT-X Bins/Pixel. 4 shows the whole passband; 1 is the narrowest zoom.</summary>
+    /// <summary>Waterfall scroll speed, rows per second.</summary>
+    public int WaterfallRowsPerSecond { get; set; } = 25;
+    /// <summary>Show the spectrum plot above the waterfall (WSJT-X Wide Graph spectrum).</summary>
+    public bool ShowSpectrumPlot { get; set; } = true;
+    /// <summary>Spectrum plot trace: Current, Cumulative or Linear Avg.</summary>
+    public string SpectrumPlotMode { get; set; } = "Current";
+    /// <summary>Spectrum plot smoothing, 1 = off.</summary>
+    public int SpectrumPlotSmooth { get; set; } = 1;
+    /// <summary>WSJT-X Bins/Pixel. FT8/FT4: 750 Hz per step (4 = 3000 Hz); 1 is the narrowest zoom.</summary>
     public int WaterfallBinsPerPixel { get; set; } = 4;
     /// <summary>Left edge of the FT8/FT4 waterfall, Hz.</summary>
     public int DigiWaterfallStartHz { get; set; } = 200;

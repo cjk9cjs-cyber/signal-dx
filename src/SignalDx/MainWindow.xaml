@@ -310,7 +310,7 @@
               <ComboBox Width="56" Margin="0,0,14,0" VerticalAlignment="Center"
                         ItemsSource="{Binding WaterfallBinsChoices}"
                         SelectedItem="{Binding WaterfallBinsPerPixel}"
-                        ToolTip="4 shows the whole passband. 1 is the narrowest zoom (WSJT-X Bins/Pixel)."/>
+                        ToolTip="How many Hz the waterfall shows. FT8/FT4: 750 Hz per step (4 = 3000 Hz, e.g. Start 100 shows 100–3100; 6 = 4500 Hz). WSPR is limited to its 200 Hz passband (WSJT-X Bins/Pixel)."/>
               <TextBlock Text="N Avg" Foreground="{StaticResource MutedBrush}" FontSize="11"
                          VerticalAlignment="Center" Margin="0,0,4,0"/>
               <ComboBox Width="56" Margin="0,0,14,0" VerticalAlignment="Center"
@@ -336,7 +336,7 @@
                 <TextBlock Text="{Binding WaterfallGain}" Foreground="{StaticResource TextBrush}" FontSize="11"
                            VerticalAlignment="Center" Margin="4,0,0,0" MinWidth="20"/>
               </StackPanel>
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+              <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center"
                           ToolTip="Higher Zero hides weaker traces and keeps the background solid (WSJT-X Zero).">
                 <TextBlock Text="Zero" Foreground="{StaticResource MutedBrush}" FontSize="11"
                            VerticalAlignment="Center" Margin="0,0,4,0"/>
@@ -346,6 +346,27 @@
                 <TextBlock Text="{Binding WaterfallZero}" Foreground="{StaticResource TextBrush}" FontSize="11"
                            VerticalAlignment="Center" Margin="4,0,0,0" MinWidth="20"/>
               </StackPanel>
+              <TextBlock Text="Scroll" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                         VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox Width="56" Margin="0,0,14,0" VerticalAlignment="Center"
+                        ItemsSource="{Binding WaterfallRateChoices}"
+                        SelectedItem="{Binding WaterfallRowsPerSecond}"
+                        ToolTip="Waterfall scroll speed in rows per second. Lower is slower, so more time fits on screen. 25 is the fastest."/>
+              <CheckBox Content="Spectrum" IsChecked="{Binding ShowSpectrumPlot}" Margin="0,0,8,0"
+                        VerticalAlignment="Center"
+                        ToolTip="Show the spectrum plot above the waterfall (WSJT-X Wide Graph spectrum)."/>
+              <ComboBox Width="96" Margin="0,0,8,0" VerticalAlignment="Center"
+                        ItemsSource="{Binding SpectrumModeChoices}"
+                        SelectedItem="{Binding SelectedSpectrumMode}"
+                        IsEnabled="{Binding ShowSpectrumPlot}"
+                        ToolTip="Current: this moment. Cumulative: average since the start of the slot. Linear Avg: running average of the last second or so."/>
+              <TextBlock Text="Smooth" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                         VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox Width="50" VerticalAlignment="Center"
+                        ItemsSource="{Binding SpectrumSmoothChoices}"
+                        SelectedItem="{Binding SpectrumSmooth}"
+                        IsEnabled="{Binding ShowSpectrumPlot}"
+                        ToolTip="Smooth the spectrum plot. 1 is off."/>
             </WrapPanel>
           </Border>
           <Grid>
@@ -358,6 +379,9 @@
                   <Style.Triggers>
                     <DataTrigger Binding="{Binding IsWsprMode}" Value="True">
                       <Setter Property="Text" Value="WSPR-2 — 1400–1600 Hz passband  ·  2-minute time marks  ·  click to set Tx"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding ShowSpectrumPlot}" Value="True">
+                      <Setter Property="Visibility" Value="Collapsed"/>
                     </DataTrigger>
                   </Style.Triggers>
                 </Style>

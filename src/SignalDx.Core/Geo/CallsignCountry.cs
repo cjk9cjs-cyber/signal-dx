@@ -103,7 +103,7 @@ public static class CallsignCountry
         ("RZ", "Russia"), ("UA9", "Asiatic Russia"), ("UA0", "Asiatic Russia"),
         ("UN", "Kazakhstan"), ("UK", "Uzbekistan"), ("UY", "Ukraine"), ("UR", "Ukraine"),
         ("US", "Ukraine"), ("UT", "Ukraine"), ("UU", "Ukraine"), ("UV", "Ukraine"), ("UW", "Ukraine"),
-        ("UX", "Ukraine"), ("UZ", "Uzbekistan"),
+        ("UX", "Ukraine"), ("UZ", "Ukraine"),
 
         ("S0", "W Sahara"), ("S2", "Bangladesh"), ("S5", "Slovenia"), ("S7", "Seychelles"),
         ("S9", "Sao Tome"), ("SM", "Sweden"), ("SP", "Poland"), ("ST", "Sudan"), ("SU", "Egypt"),
@@ -137,8 +137,111 @@ public static class CallsignCountry
         ("ZS8", "Marion Is"), ("Z8", "S Sudan"),
     ];
 
+    /// <summary>
+    /// ITU call sign blocks not listed above (e.g. Colombia 5J/5K/HJ, Taiwan BM–BQ, Canada CF–CK).
+    /// Entries in <see cref="Table"/> win when the same prefix appears in both.
+    /// </summary>
+    static readonly (string Prefix, string Country)[] ItuBlocks =
+    [
+        .. Block("Panama", "3E 3F H3 H8 H9 HO"),
+        .. Block("China", "3H 3J 3K 3L 3M 3N 3O 3P 3Q 3R 3S 3T 3U XS"),
+        .. Block("Mexico", "4A 4B 4C 6D 6E 6F 6G 6H 6I 6J XA XB XC XD XF XG XH XI"),
+        .. Block("Philippines", "4D 4E 4F 4G 4H 4I DV DW DX DY DZ"),
+        .. Block("Azerbaijan", "4J"),
+        .. Block("Venezuela", "4M YW YX"),
+        .. Block("Sri Lanka", "4P 4Q 4R"),
+        .. Block("Peru", "4T OB OC"),
+        .. Block("Haiti", "4V"),
+        .. Block("Timor-Leste", "4W"),
+        .. Block("Morocco", "5C 5D 5E 5F 5G"),
+        .. Block("Tanzania", "5I"),
+        .. Block("Colombia", "5J 5K HJ"),
+        .. Block("Liberia", "5L 5M 6Z A8 D5"),
+        .. Block("Nigeria", "5O"),
+        .. Block("Denmark", "5P 5Q OU OV OW"),
+        .. Block("Madagascar", "5S 6X"),
+        .. Block("Kenya", "5Y"),
+        .. Block("Egypt", "6A 6B"),
+        .. Block("Syria", "6C"),
+        .. Block("S Korea", "6K 6L 6M 6N D7 D8 D9 DS DT"),
+        .. Block("Somalia", "6O T5"),
+        .. Block("Pakistan", "6P 6Q 6R 6S AQ AR AS"),
+        .. Block("Sudan", "6T 6U"),
+        .. Block("Senegal", "6V"),
+        .. Block("Indonesia", "7A 7B 7C 7D 7E 7F 7G 7H 7I 8A 8B 8C 8D 8E 8F 8G 8H 8I JZ PL PM PN PO YC YD YE YF YG YH"),
+        .. Block("Japan", "7J 7K 7L 7M 7N 8J 8K 8L 8M 8N"),
+        .. Block("Algeria", "7R 7T 7U 7V 7W 7Y"),
+        .. Block("Sweden", "7S 8S SA SB SC SD SE SF SG SH SI SJ SK SL"),
+        .. Block("Saudi Arabia", "7Z 8Z"),
+        .. Block("Botswana", "8O"),
+        .. Block("India", "8T 8U 8V 8W 8X 8Y AT AU AV AW VT VV VW"),
+        .. Block("Iran", "9B 9C 9D EQ"),
+        .. Block("Ethiopia", "9E 9F"),
+        .. Block("Zambia", "9I"),
+        .. Block("DR Congo", "9O 9P 9R 9S 9T"),
+        .. Block("Burundi", "9U"),
+        .. Block("Malaysia", "9W"),
+        .. Block("Rwanda", "9X"),
+        .. Block("Trinidad", "9Z"),
+        .. Block("Spain", "AM AN AO EB EC ED EE EF EG EH"),
+        .. Block("Australia", "AX VH VI VJ VL VM VN VZ"),
+        .. Block("Argentina", "AY AZ L2 L3 L4 L5 L6 L7 L8 L9"),
+        .. Block("Taiwan", "BM BN BO BP BQ BU BX"),
+        .. Block("Cyprus", "C4 H2 P3"),
+        .. Block("Mozambique", "C8"),
+        .. Block("Chile", "CA CB CC CD XQ XR"),
+        .. Block("Canada", "CF CG CH CI CJ CK CY CZ VB VC VD VF VG VX XJ XK XL XM XN XO"),
+        .. Block("Cuba", "CL CM T4"),
+        .. Block("Uruguay", "CV CW"),
+        .. Block("Angola", "D3"),
+        .. Block("Germany", "DA DB DC DD DE DF DG DH DI DJ DK"),
+        .. Block("Ireland", "EJ"),
+        .. Block("Ukraine", "EM EN EO"),
+        .. Block("Belarus", "EV EW"),
+        .. Block("Nicaragua", "H6 H7 HT"),
+        .. Block("Ecuador", "HD"),
+        .. Block("Switzerland", "HE"),
+        .. Block("Poland", "HF SN SO SQ SR"),
+        .. Block("Hungary", "HG"),
+        .. Block("N Korea", "HM P5 P6 P7 P8 P9"),
+        .. Block("Iraq", "HN"),
+        .. Block("Honduras", "HQ"),
+        .. Block("El Salvador", "HU"),
+        .. Block("France", "HW HX HY TH TM TO TP TQ TV TW TX"),
+        .. Block("Greece", "J4 SW SX SZ"),
+        .. Block("Mongolia", "JU JV"),
+        .. Block("Finland", "OF OG OI OJ"),
+        .. Block("Belgium", "OO OP OQ OR OS OT"),
+        .. Block("Curacao", "PJ"),
+        .. Block("Bangladesh", "S3"),
+        .. Block("Singapore", "S6"),
+        .. Block("South Africa", "S8 ZR ZT ZU"),
+        .. Block("Afghanistan", "T6"),
+        .. Block("Bosnia", "T9"),
+        .. Block("Turkey", "TB TC YM"),
+        .. Block("Guatemala", "TD"),
+        .. Block("Costa Rica", "TE"),
+        .. Block("Tunisia", "TS"),
+        .. Block("Uzbekistan", "UJ UM"),
+        .. Block("Kazakhstan", "UO UP UQ"),
+        .. Block("Hong Kong", "VS"),
+        .. Block("Greenland", "XP"),
+        .. Block("Vietnam", "XV"),
+        .. Block("Macao", "XX"),
+        .. Block("Myanmar", "XY"),
+        .. Block("Romania", "YP YQ YR"),
+        .. Block("Serbia", "YT YZ"),
+        .. Block("Kosovo", "Z6"),
+        .. Block("New Zealand", "ZK ZM"),
+        .. Block("Brazil", "ZV ZW ZX ZY ZZ"),
+    ];
+
+    static IEnumerable<(string Prefix, string Country)> Block(string country, string prefixes) =>
+        prefixes.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(p => (p, country));
+
     static readonly (string Prefix, string Country)[] Sorted =
-        Table.OrderByDescending(t => t.Prefix.Length)
+        Table.Concat(ItuBlocks)
+            .OrderByDescending(t => t.Prefix.Length)
             .ThenBy(t => t.Prefix, StringComparer.Ordinal)
             .ToArray();
 
@@ -149,6 +252,9 @@ public static class CallsignCountry
 
         foreach (var (prefix, country) in Sorted)
         {
+            // Only KG4 + two letters is Guantanamo; KG4ABC and KG4A are ordinary US calls.
+            if (prefix == "KG4" && call.Length != 5)
+                continue;
             if (call.StartsWith(prefix, StringComparison.Ordinal))
                 return country;
         }
