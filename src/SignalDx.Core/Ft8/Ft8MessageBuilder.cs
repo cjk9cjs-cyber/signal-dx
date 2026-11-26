@@ -58,10 +58,10 @@ public static class Ft8MessageBuilder
         bool isCq = parts[0] is "CQ" or "QRZ" or "DE";
         if (isCq)
         {
-            string? call = parts.Length > 1 ? parts[1] : null;
+            string? call = parts.Length > 1 ? UnwrapHashed(parts[1]) : null;
             // Directed CQ: CQ DX K1ABC FN42
             if (parts.Length >= 4 && call is "DX" or "NA" or "EU" or "AS" or "SA" or "OC" or "AF" or "POTA" or "SOTA")
-                call = parts[2];
+                call = UnwrapHashed(parts[2]);
             if (!LooksLikeCall(call))
                 call = null;
             string? grid = LooksLikeGrid(parts[^1]) ? parts[^1] : null;
@@ -69,11 +69,21 @@ public static class Ft8MessageBuilder
         }
 
         // Standard QSO: CALLED CALLER [grid|report|…] — caller (2nd) is the transmitter.
-        string? dx = parts.Length >= 2 ? parts[1] : parts[0];
+        string? dx = UnwrapHashed(parts.Length >= 2 ? parts[1] : parts[0]);
         if (!LooksLikeCall(dx))
             dx = null;
         string? g = parts.Length >= 3 && LooksLikeGrid(parts[^1]) ? parts[^1] : null;
         return (dx, g, false);
+    }
+
+    /// <summary>"&lt;K1ABC&gt;" (hash resolved by the decoder) becomes "K1ABC"; "&lt;...&gt;" stays unresolved.</summary>
+    public static string? UnwrapHashed(string? s)
+    {
+        if (s is null) return null;
+        s = s.Trim();
+        if (s.Length > 2 && s[0] == '<' && s[^1] == '>')
+            return s[1..^1].Trim();
+        return s;
     }
 
     /// <summary>True if token looks like a callsign (not a report / 73 / grid).</summary>

@@ -63,6 +63,16 @@ public class Ft8MessageBuilderTests
         Assert.Equal(expected, call);
     }
 
+    [Theory]
+    [InlineData("K9CJS <W1ABC> R-05", "W1ABC")]
+    [InlineData("CQ <5R8IC>", "5R8IC")]
+    [InlineData("K9CJS <...> -10", null)]
+    public void Parse_HandlesHashedCalls(string message, string? expected)
+    {
+        var (call, _, _) = Ft8MessageBuilder.Parse(message);
+        Assert.Equal(expected, call);
+    }
+
     [Fact]
     public void Parse_StillRejectsReportsAsCalls()
     {

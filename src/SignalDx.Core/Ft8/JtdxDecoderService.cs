@@ -197,7 +197,8 @@ public sealed class JtdxDecoderService : IDisposable
         if (!m.Success) return null;
 
         string message = m.Groups[5].Value.Trim().TrimEnd('*').Trim();
-        if (string.IsNullOrWhiteSpace(message) || message.StartsWith('<'))
+        if (string.IsNullOrWhiteSpace(message) ||
+            (message.StartsWith('<') && !message.Contains(' ')))
             return null;
 
         if (message.Contains("pass", StringComparison.OrdinalIgnoreCase) &&

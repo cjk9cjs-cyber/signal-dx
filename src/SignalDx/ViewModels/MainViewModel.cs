@@ -1791,7 +1791,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ApplySelectedDecode(hit);
         if (string.IsNullOrWhiteSpace(DxCall))
         {
-            Status = "No callsign on that decode — TX not armed.";
+            Status = hit.Message.Contains("<...>", StringComparison.Ordinal)
+                ? "That station's callsign is hashed and unresolved (<...>) — wait for it to send its full call, TX not armed."
+                : "No callsign on that decode — TX not armed.";
             return;
         }
 
