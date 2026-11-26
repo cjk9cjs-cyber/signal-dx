@@ -85,7 +85,8 @@ public static class Ft8MessageBuilder
         if (s.StartsWith('<')) return false; // hashed / unresolved
         if (s is "CQ" or "QRZ" or "DE" or "DX" or "RRR" or "RR73" or "73") return false;
         if (LooksLikeGrid(s)) return false;
-        if (s[0] is '+' or '-' || char.IsDigit(s[0])) return false; // SNR / R-report
+        if (s[0] is '+' or '-') return false; // SNR report
+        if (char.IsDigit(s[0]) && !s.Any(char.IsLetter)) return false; // bare number, not a call (5R8IC, 3Y0X, 9A1A are calls)
         if (s.StartsWith('R') && s.Length >= 2 && (s[1] is '+' or '-' || char.IsDigit(s[1])))
             return false;
         // Must contain a digit (standard call) or slash compound.

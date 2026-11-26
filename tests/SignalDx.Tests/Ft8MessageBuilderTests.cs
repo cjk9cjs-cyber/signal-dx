@@ -51,4 +51,25 @@ public class Ft8MessageBuilderTests
         Assert.Equal("W1ABC", call);
         Assert.Equal("FN42", grid);
     }
+
+    [Theory]
+    [InlineData("CQ 5R8IC LH28", "5R8IC")]
+    [InlineData("K9CJS 5R8IC -12", "5R8IC")]
+    [InlineData("K9CJS 3Y0J R-05", "3Y0J")]
+    [InlineData("CQ DX 9A1A JN85", "9A1A")]
+    public void Parse_AcceptsCallsStartingWithDigit(string message, string expected)
+    {
+        var (call, _, _) = Ft8MessageBuilder.Parse(message);
+        Assert.Equal(expected, call);
+    }
+
+    [Fact]
+    public void Parse_StillRejectsReportsAsCalls()
+    {
+        Assert.False(Ft8MessageBuilder.LooksLikeCall("-12"));
+        Assert.False(Ft8MessageBuilder.LooksLikeCall("+05"));
+        Assert.False(Ft8MessageBuilder.LooksLikeCall("R-10"));
+        Assert.False(Ft8MessageBuilder.LooksLikeCall("599"));
+        Assert.Equal("Madagascar", SignalDx.Geo.CallsignCountry.FromCall("5R8IC"));
+    }
 }
