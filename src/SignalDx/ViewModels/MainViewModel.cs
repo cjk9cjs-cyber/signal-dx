@@ -189,9 +189,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _rxHistorySuppressed = true;
             DxCall = "";
             DxGrid = "";
+            if (!_holdCq)
+            {
+                _seq.Reset();
+                _deferTxUntilDecode = false;
+                PhaseLabel = "Idle";
+                FreeText = "";
+                InvalidateTxAudioCache();
+            }
             RxHz = TxHz;
         });
-        SendMacroCommand = new RelayCommand(p => SendMacro(p as MacroDisplayItem), _ => EnableTx && !IsTransmitting);
+        SendMacroCommand = new RelayCommand(p => SendMacro(p as MacroDisplayItem), _ => !IsTransmitting);
         HaltTxCommand = new RelayCommand(() => _ = HaltTxAsync(), () => IsTransmitting || IsTuning);
         TuneCommand = new RelayCommand(() => _ = ToggleTuneAsync(), () => !IsTransmitting || IsTuning);
         SaveSettingsCommand = new RelayCommand(() => _ = SaveSettingsAsync());
@@ -3735,11 +3743,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void SendMacro(MacroDisplayItem? item)
     {
-        if (item is null || !EnableTx) return;
+        if (item is null) return;
         var macro = item.Macro;
         string msg = macro.Kind == TxMacroKind.FreeText && !string.IsNullOrWhiteSpace(FreeText)
             ? FreeText
             : Ft8MessageBuilder.Build(macro.Template, _settings, DxCall, Report);
+
+        if (!EnableTx)
+        {
+            if ((macro.Kind is TxMacroKind.Cq or TxMacroKind.Custom) &&
+                msg.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase))
+            {
+                _settings.CqTemplate = string.IsNullOrWhiteSpace(macro.Template)
+                    ? "CQ {mycall} {mygrid}"
+                    : macro.Template.Trim();
+                SaveSettingsNow();
+            }
+            _holdCq = false;
+            FreeText = msg;
+            Status = $"Macro loaded (TX off) → {msg}";
+            return;
+        }
 
         // CQ / CQ DX / CQ EU: arm CQ-hold and clear the prior DX so the next slot
         // does not fall back to AutoSequence calling the previous station.

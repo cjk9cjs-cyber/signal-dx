@@ -605,11 +605,12 @@
                           CommandParameter="{Binding}"
                           Style="{StaticResource TxButton}"
                           Margin="0,0,6,6" Height="48"
+                          Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
                           ToolTip="{Binding Preview}">
                     <Button.ContextMenu>
                       <ContextMenu>
                         <MenuItem Header="Remove custom macro"
-                                  Command="{Binding DataContext.RemoveCustomMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  Command="{Binding PlacementTarget.Tag.RemoveCustomMacroCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   Visibility="{Binding PlacementTarget.DataContext.IsCustom, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}"/>
                       </ContextMenu>
