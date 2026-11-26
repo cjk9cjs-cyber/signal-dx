@@ -134,12 +134,6 @@
                     VerticalAlignment="Center" MinHeight="22"
                     Value="{Binding TxDrivePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                     ToolTip="PC TX audio level (0–100%). A direct Hamlib radio does not get a mic-gain change. HRD is unchanged."/>
-            <TextBlock Text="{Binding RxLevelText}" Margin="12,0,0,0" VerticalAlignment="Center"
-                       Foreground="{StaticResource GoodBrush}" MinWidth="72"
-                       ToolTip="RX audio input level (dB FS) — aim for mid-scale with Monitor running"/>
-            <ProgressBar Width="80" Height="12" Minimum="0" Maximum="1" Value="{Binding RxLevelNorm}"
-                         VerticalAlignment="Center" Margin="6,0,0,0"
-                         ToolTip="RX audio level — raise radio AF / VAC until the bar is roughly mid-scale"/>
             <TextBlock Text="{Binding AlcText}" Margin="10,0,0,0" VerticalAlignment="Center"
                        Foreground="{StaticResource WarnBrush}" MinWidth="72"
                        ToolTip="Radio ALC when CAT reports it; shows DRV% from the Drive slider while transmitting"/>
@@ -233,6 +227,15 @@
           <StackPanel Orientation="Horizontal">
             <Button Content="Monitor" Command="{Binding StartMonitorCommand}" Style="{StaticResource AccentButton}"/>
             <Button Content="Stop" Command="{Binding StopMonitorCommand}"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,4,0"
+                        ToolTip="RX audio level into the PC (dB FS), like the WSJT-X Rx meter. Yellow = too low, green = good, red = too hot or clipping. Raise or lower radio AF / VAC until the bar sits in the green.">
+              <Label Content="Rx level"/>
+              <ProgressBar Width="150" Height="14" Minimum="0" Maximum="1"
+                           Value="{Binding RxLevelNorm}" Foreground="{Binding RxLevelBrush}"
+                           VerticalAlignment="Center"/>
+              <TextBlock Text="{Binding RxLevelText}" Foreground="{Binding RxLevelBrush}"
+                         MinWidth="86" Margin="8,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold"/>
+            </StackPanel>
             <Button Content="Enable TX" Command="{Binding EnableTxCommand}"
                     Style="{StaticResource EnableTxToggleButton}"
                     ToolTip="Arm TX (red = armed, blue = idle)"/>

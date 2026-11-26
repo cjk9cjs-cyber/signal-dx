@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using SignalDx.Audio;
@@ -1528,6 +1529,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         get => _rxLevelNorm;
         set => SetField(ref _rxLevelNorm, value);
+    }
+
+    Brush _rxLevelBrush = RxIdleBrush;
+
+    public Brush RxLevelBrush
+    {
+        get => _rxLevelBrush;
+        set => SetField(ref _rxLevelBrush, value);
     }
 
     public string DxCall
@@ -3130,14 +3139,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             RxLevelNorm = 0;
             RxLevelText = "IN —";
+            RxLevelBrush = RxIdleBrush;
             return;
         }
 
         double sumSq = 0;
+        double peak = 0;
         for (int i = 0; i < frame.Length; i++)
         {
             double s = frame[i];
             sumSq += s * s;
+            double a = Math.Abs(s);
+            if (a > peak) peak = a;
         }
 
         double rms = Math.Sqrt(sumSq / frame.Length);
@@ -3145,7 +3158,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         db = Math.Clamp(db, -60, 0);
         // WSJT-X-style bar: −54 dBFS → empty, 0 dBFS → full (mid-scale is a good digi level).
         RxLevelNorm = Math.Clamp((db + 54.0) / 54.0, 0, 1);
-        RxLevelText = $"IN {db:0} dB";
+
+        bool clipping = peak >= 0.99;
+        RxLevelBrush = clipping || db > -12 ? RxHotBrush : db < -40 ? RxLowBrush : RxGoodBrush;
+        RxLevelText = clipping ? $"IN {db:0} dB CLIP" : $"IN {db:0} dB";
+    }
+
+    static readonly Brush RxIdleBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x8F, 0xA3, 0xBF)));
+    static readonly Brush RxLowBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xE3, 0xB3, 0x41)));
+    static readonly Brush RxGoodBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x4F, 0xCF, 0x8A)));
+    static readonly Brush RxHotBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0x4F, 0x3F)));
+
+    static Brush Frozen(Brush b)
+    {
+        b.Freeze();
+        return b;
     }
 
     void PreferJtdxIfAvailable()
