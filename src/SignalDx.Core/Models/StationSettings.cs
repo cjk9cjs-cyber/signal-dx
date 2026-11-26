@@ -120,6 +120,9 @@ public sealed class StationSettings
     /// <summary>True after Wanted defaults were applied once (older settings.json lacked these fields → bool false).</summary>
     public bool WantedFeatureInitialized { get; set; }
 
+    /// <summary>Blocked callsigns / wildcards (K1ABC, K1*). Their decodes are hidden and never trigger alerts or auto-replies.</summary>
+    public List<string> BlockedCalls { get; set; } = [];
+
     /// <summary>When true, check GitHub Releases for a newer version shortly after startup.</summary>
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 

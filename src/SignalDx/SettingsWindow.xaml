@@ -485,6 +485,43 @@
         </ScrollViewer>
       </TabItem>
 
+      <!-- Blocked -->
+      <TabItem Header="Blocked">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+          <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                  BorderThickness="1" Padding="12">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Blocked callsigns" FontWeight="SemiBold"
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
+                         Text="Decodes from blocked stations are hidden from Band Activity and RX Frequency, and never trigger alerts or auto-replies. You can also right-click any row in Band Activity / RX Frequency and choose Block."/>
+              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <Button DockPanel.Dock="Right" Content="Block" Command="{Binding AddBlockedCommand}"
+                        Style="{StaticResource AccentButton}" MinWidth="72" Margin="8,0,0,0"/>
+                <TextBox Text="{Binding NewBlockedValue, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Exact call (K1ABC, also blocks K1ABC/P) or wildcard: K1* blocks every call starting with K1 · *XYZ blocks calls ending in XYZ"/>
+              </DockPanel>
+              <ListBox ItemsSource="{Binding BlockedItems}" MinHeight="220"
+                       Background="#0E1626" BorderBrush="{StaticResource BorderBrush}"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <DockPanel Margin="4,2">
+                      <Button DockPanel.Dock="Right" Content="Unblock"
+                              Command="{Binding DataContext.RemoveBlockedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                              CommandParameter="{Binding}"
+                              Padding="8,2" Margin="8,0,0,0"/>
+                      <TextBlock Text="{Binding}" VerticalAlignment="Center"
+                                 Foreground="{StaticResource TextBrush}"/>
+                    </DockPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+        </ScrollViewer>
+      </TabItem>
+
       <!-- Backup -->
       <TabItem Header="Backup">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">

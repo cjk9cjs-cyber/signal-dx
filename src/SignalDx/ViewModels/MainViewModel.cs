@@ -154,6 +154,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         RebuildMacroList();
         ReloadWantedList();
+        ReloadBlockedList();
 
         InputDevices = new ObservableCollection<string>();
         OutputDevices = new ObservableCollection<string>();
@@ -223,6 +224,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ApplyManualDxCommand = new RelayCommand(ApplyManualDxCall);
         AddWantedCommand = new RelayCommand(AddWantedItem, () => !string.IsNullOrWhiteSpace(NewWantedValue));
         RemoveWantedCommand = new RelayCommand(p => RemoveWantedItem(p as WantedEntry));
+        AddBlockedCommand = new RelayCommand(() => AddBlockedCall(NewBlockedValue), () => !string.IsNullOrWhiteSpace(NewBlockedValue));
+        RemoveBlockedCommand = new RelayCommand(p => RemoveBlockedCall(p as string));
+        BlockDecodeCallCommand = new RelayCommand(p => AddBlockedCall((p as DecodeHit)?.DxCall));
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
         RefreshAudioDevicesCommand = new RelayCommand(() =>
         {
@@ -350,6 +354,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<QsoEntry> Log { get; } = [];
     public ObservableCollection<MacroDisplayItem> Macros { get; } = [];
     public ObservableCollection<WantedEntry> WantedItems { get; } = [];
+    public ObservableCollection<string> BlockedItems { get; } = [];
     public ObservableCollection<string> WantedKindChoices { get; } = ["Call", "State", "Country"];
     public ObservableCollection<string> InputDevices { get; }
     public ObservableCollection<string> OutputDevices { get; }
@@ -395,6 +400,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ApplyManualDxCommand { get; }
     public ICommand AddWantedCommand { get; }
     public ICommand RemoveWantedCommand { get; }
+    public ICommand AddBlockedCommand { get; }
+    public ICommand RemoveBlockedCommand { get; }
+    public ICommand BlockDecodeCallCommand { get; }
     public ICommand RefreshPortsCommand { get; }
     public ICommand RefreshAudioDevicesCommand { get; }
     public ICommand RefreshHamlibModelsCommand { get; }
@@ -1119,6 +1127,67 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public string WantedFilePath => _wanted.FilePath;
+
+    string _newBlockedValue = "";
+    public string NewBlockedValue
+    {
+        get => _newBlockedValue;
+        set
+        {
+            if (!SetField(ref _newBlockedValue, value ?? "")) return;
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    void ReloadBlockedList()
+    {
+        BlockedItems.Clear();
+        foreach (var c in _settings.BlockedCalls)
+            BlockedItems.Add(c);
+    }
+
+    void AddBlockedCall(string? value)
+    {
+        string? entry = CallBlockList.NormalizeEntry(value);
+        if (entry is null)
+        {
+            Status = "Enter a callsign (K1ABC) or wildcard (K1*, *XYZ)";
+            return;
+        }
+        if (_settings.BlockedCalls.Any(c => c.Equals(entry, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = $"Already blocked → {entry}";
+            return;
+        }
+
+        _settings.BlockedCalls.Add(entry);
+        BlockedItems.Add(entry);
+        NewBlockedValue = "";
+        SaveSettingsNow();
+
+        RemoveBlockedFromPanes();
+        Status = $"Blocked {entry}";
+    }
+
+    void RemoveBlockedCall(string? entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) return;
+        _settings.BlockedCalls.RemoveAll(c => c.Equals(entry, StringComparison.OrdinalIgnoreCase));
+        var match = BlockedItems.FirstOrDefault(c => c.Equals(entry, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) BlockedItems.Remove(match);
+        SaveSettingsNow();
+        Status = $"Unblocked {entry}";
+    }
+
+    void RemoveBlockedFromPanes()
+    {
+        for (int i = Activity.Count - 1; i >= 0; i--)
+            if (CallBlockList.IsBlocked(_settings.BlockedCalls, Activity[i].DxCall))
+                Activity.RemoveAt(i);
+        for (int i = RxActivity.Count - 1; i >= 0; i--)
+            if (CallBlockList.IsBlocked(_settings.BlockedCalls, RxActivity[i].DxCall))
+                RxActivity.RemoveAt(i);
+    }
 
     void BrowseCallAlertSound()
     {
@@ -3320,6 +3389,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool wantedAlert = false;
             string? wantedReason = null;
             bool autoReplied = false;
+            int blockedCount = 0;
+            if (_settings.BlockedCalls.Count > 0)
+            {
+                var visible = hits.Where(h => !CallBlockList.IsBlocked(_settings.BlockedCalls, h.DxCall)).ToList();
+                blockedCount = hits.Count - visible.Count;
+                hits = visible;
+            }
             foreach (var hit in hits)
             {
                 MarkWorkingFlags(hit);
@@ -3369,7 +3445,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (wantedAlert && !string.IsNullOrWhiteSpace(wantedReason))
                 Status = $"★ Wanted {wantedReason}";
             else if (!autoReplied && !_holdCq && !_deferTxUntilDecode)
-                Status = $"Decoded {hits.Count} ({engineLabel}) @ {utc:HH:mm:ss} UTC";
+                Status = $"Decoded {hits.Count} ({engineLabel}) @ {utc:HH:mm:ss} UTC" +
+                         (blockedCount > 0 ? $" · {blockedCount} blocked" : "");
 
             // Key this slot now with the (possibly advanced) macro — do not wait another cycle.
             FinishDeferredTxAfterDecode();

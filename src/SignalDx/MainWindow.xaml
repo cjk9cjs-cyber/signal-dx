@@ -33,6 +33,16 @@
           </MultiBinding>
         </Setter.Value>
       </Setter>
+      <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"/>
+      <Setter Property="ContextMenu">
+        <Setter.Value>
+          <ContextMenu>
+            <MenuItem Header="{Binding PlacementTarget.DataContext.DxCall, RelativeSource={RelativeSource AncestorType=ContextMenu}, StringFormat=Block {0}}"
+                      Command="{Binding PlacementTarget.Tag.BlockDecodeCallCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+          </ContextMenu>
+        </Setter.Value>
+      </Setter>
       <Style.Triggers>
         <DataTrigger Binding="{Binding IsPreviouslyWorked}" Value="True">
           <Setter Property="Opacity" Value="0.78"/>
