@@ -1781,7 +1781,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Double-click a Band/RX decode: load station, arm TX (and auto-seq reply).</summary>
-    public void EnableTxForStation(DecodeHit? hit)
+    public void EnableTxForStation(DecodeHit? hit, bool clearRxPane = true)
     {
         if (hit is null) return;
         ApplySelectedDecode(hit);
@@ -1811,9 +1811,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _seq.Phase is QsoPhase.CallingDx or QsoPhase.SentReport
                 or QsoPhase.SentRogerReport or QsoPhase.Sent73
                 or QsoPhase.SendingSeventyThree;
-        if (!continuingQso)
+        if (!continuingQso && clearRxPane)
         {
-            // New station: RX pane starts fresh and shows only this call from here on.
+            // New station from Band Activity: RX pane starts fresh and shows only this call from here on.
             SelectedRxDecode = null;
             RxActivity.Clear();
             _rxHistorySuppressed = true;

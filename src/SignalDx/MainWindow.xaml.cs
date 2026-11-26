@@ -250,16 +250,16 @@ public partial class MainWindow : Window
     }
 
     void Activity_OnMouseDoubleClick(object sender, MouseButtonEventArgs e) =>
-        EnableTxFromGrid(sender);
+        EnableTxFromGrid(sender, clearRxPane: true);
 
     void RxActivity_OnMouseDoubleClick(object sender, MouseButtonEventArgs e) =>
-        EnableTxFromGrid(sender);
+        EnableTxFromGrid(sender, clearRxPane: false);
 
-    void EnableTxFromGrid(object sender)
+    void EnableTxFromGrid(object sender, bool clearRxPane)
     {
         if (sender is not DataGrid grid) return;
         if (grid.SelectedItem is DecodeHit hit)
-            _vm.EnableTxForStation(hit);
+            _vm.EnableTxForStation(hit, clearRxPane);
     }
 
     void Dial_OnKeyDown(object sender, KeyEventArgs e)
