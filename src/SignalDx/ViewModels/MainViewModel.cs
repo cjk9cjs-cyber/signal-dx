@@ -208,6 +208,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ConnectCatCommand = new RelayCommand(() => _ = ConnectCatAsync());
         DisconnectCatCommand = new RelayCommand(() => _ = DisconnectCatAsync());
         ExportAdifCommand = new RelayCommand(ExportAdif);
+        BackupSettingsCommand = new RelayCommand(BackupSettings);
+        RestoreSettingsCommand = new RelayCommand(RestoreSettings);
         WsprTxNextCommand = new RelayCommand(ArmWsprTxNext, () => IsWsprMode && !IsTransmitting);
         ResetSeqCommand = new RelayCommand(() =>
         {
@@ -383,6 +385,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ConnectCatCommand { get; }
     public ICommand DisconnectCatCommand { get; }
     public ICommand ExportAdifCommand { get; }
+    public ICommand BackupSettingsCommand { get; }
+    public ICommand RestoreSettingsCommand { get; }
     public ICommand WsprTxNextCommand { get; }
     public ICommand ResetSeqCommand { get; }
     public ICommand ResetTxMacrosCommand { get; }
@@ -4744,6 +4748,104 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _seq.Reset();
             PhaseLabel = "Idle";
         }
+    }
+
+    string _backupStatusText = "";
+
+    public string BackupStatusText
+    {
+        get => _backupStatusText;
+        set => SetField(ref _backupStatusText, value);
+    }
+
+    public string BackupDataFolder => SettingsBackupService.DataDir;
+
+    void BackupSettings()
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "Signal DX backup (*.zip)|*.zip",
+            FileName = $"SignalDx-backup-{DateTime.Now:yyyy-MM-dd}.zip",
+            AddExtension = true,
+            DefaultExt = "zip"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            SaveSettingsNow();
+            var result = SettingsBackupService.CreateBackup(dlg.FileName, AppInfo.Version);
+            BackupStatusText = $"Backed up {result.FileCount} file(s) → {result.Path}";
+            Status = BackupStatusText;
+        }
+        catch (Exception ex)
+        {
+            BackupStatusText = $"Backup failed: {ex.Message}";
+            Status = BackupStatusText;
+        }
+    }
+
+    void RestoreSettings()
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Signal DX backup (*.zip)|*.zip|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        var confirm = MessageBox.Show(
+            "Restore settings, logbook, wanted list and worked calls from this backup?\n\n" +
+            "Your current ones are replaced when Signal DX restarts.\n\n" + dlg.FileName,
+            "Restore Signal DX backup",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.OK) return;
+
+        int count;
+        try
+        {
+            count = SettingsBackupService.StageRestore(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            BackupStatusText = $"Restore failed: {ex.Message}";
+            Status = BackupStatusText;
+            MessageBox.Show(BackupStatusText, "Restore Signal DX backup", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        BackupStatusText = $"Backup ready ({count} file(s)) — restart Signal DX to apply it.";
+        Status = BackupStatusText;
+
+        var restart = MessageBox.Show(
+            "Backup loaded. Signal DX must restart to apply it.\n\nRestart now?",
+            "Restore Signal DX backup",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (restart == MessageBoxResult.Yes)
+            RestartApp();
+    }
+
+    void RestartApp()
+    {
+        string? exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe)) return;
+
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 4 >nul & start \"\" \"{exe}\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false
+        });
+
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            var app = Application.Current;
+            if (app is null) return;
+            foreach (var w in app.Windows.OfType<Window>().Where(w => w != app.MainWindow).ToList())
+                w.Close();
+            app.MainWindow?.Close();
+        });
     }
 
     void ExportAdif()

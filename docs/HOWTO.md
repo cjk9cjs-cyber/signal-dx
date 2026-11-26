@@ -99,6 +99,10 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 
 **Settings → Wanted:** add callsigns, US/CA states (e.g. `IL`), or countries (e.g. `Japan`). Matching rows highlight **red** in Band Activity / RX Frequency. Enable **Wanted alert** (toolbar + Settings) for audio when they CQ / decode.
 
+### G2. Back up your settings (before a reinstall)
+
+**Settings → Backup → Back up…** saves your settings, QSO log, ADIF log, Wanted list, and worked calls to one zip. After a clean reinstall, use **Restore…**, pick the zip, and let Signal DX restart. The zip contains your QRZ / Club Log passwords and API keys in plain text, so keep it private. Custom alert sound files are not included (only their paths).
+
 ### H. Ready to transmit
 
 1. **Enable TX** starts **off** every launch (safe). Turn it on only when you intend to transmit.
