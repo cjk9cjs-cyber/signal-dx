@@ -19,6 +19,7 @@ public sealed class JtdxDecoderService : IDisposable
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     readonly HashSet<string> _heard = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, string> _gridByCall = new(StringComparer.OrdinalIgnoreCase);
     readonly object _procGate = new();
     Process? _running;
     CancellationTokenSource? _cts;
@@ -224,6 +225,13 @@ public sealed class JtdxDecoderService : IDisposable
         // DxCall = transmitting / calling station (not the called party).
         string? dxCall = parsed.DxCall;
         string? dxGrid = parsed.DxGrid;
+        if (!string.IsNullOrWhiteSpace(dxCall))
+        {
+            if (!string.IsNullOrWhiteSpace(dxGrid))
+                _gridByCall[dxCall] = dxGrid;
+            else if (_gridByCall.TryGetValue(dxCall, out string? knownGrid))
+                dxGrid = knownGrid;
+        }
         bool isCq = parsed.IsCq;
         bool isNew = !string.IsNullOrWhiteSpace(dxCall) && _heard.Add(dxCall);
         string my = (station.MyCall ?? "").Trim();
