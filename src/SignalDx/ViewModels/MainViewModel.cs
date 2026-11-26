@@ -3208,10 +3208,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _waterfall.PushSpectrum(_spectrum.MagnitudesDb);
     }
 
+    double _rxLevelSmoothDb = -80;
+
     void UpdateRxAudioLevel(float[] frame)
     {
         if (frame.Length == 0 || !_capture.IsRunning)
         {
+            _rxLevelSmoothDb = -80;
             RxLevelNorm = 0;
             RxLevelText = "IN —";
             RxLevelBrush = RxIdleBrush;
@@ -3229,13 +3232,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         double rms = Math.Sqrt(sumSq / frame.Length);
-        double db = rms <= 1e-10 ? -60 : 20.0 * Math.Log10(rms);
-        db = Math.Clamp(db, -60, 0);
-        // WSJT-X-style bar: −54 dBFS → empty, 0 dBFS → full (mid-scale is a good digi level).
-        RxLevelNorm = Math.Clamp((db + 54.0) / 54.0, 0, 1);
+        double db = rms <= 1e-10 ? -80 : 20.0 * Math.Log10(rms);
+        db = Math.Clamp(db, -80, 0);
+        // Fast attack, slow decay so short peaks are visible between 40 ms ticks.
+        _rxLevelSmoothDb = db >= _rxLevelSmoothDb ? db : Math.Max(db, _rxLevelSmoothDb - 0.6);
+        db = _rxLevelSmoothDb;
+        // Sensitive scale: −70 dBFS → empty, −10 dBFS → full. Typical FT8 band noise (−50…−30 dBFS) lands mid-bar.
+        RxLevelNorm = Math.Clamp((db + 70.0) / 60.0, 0, 1);
 
         bool clipping = peak >= 0.99;
-        RxLevelBrush = clipping || db > -12 ? RxHotBrush : db < -40 ? RxLowBrush : RxGoodBrush;
+        RxLevelBrush = clipping || db > -12 ? RxHotBrush : db < -45 ? RxLowBrush : RxGoodBrush;
         RxLevelText = clipping ? $"IN {db:0} dB CLIP" : $"IN {db:0} dB";
     }
 
