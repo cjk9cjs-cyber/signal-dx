@@ -187,7 +187,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SelectedRxDecode = null;
             RxActivity.Clear();
             _rxHistorySuppressed = true;
-            // Snap RX marker back to TX when the RX frequency pane is cleared.
+            DxCall = "";
+            DxGrid = "";
             RxHz = TxHz;
         });
         SendMacroCommand = new RelayCommand(p => SendMacro(p as MacroDisplayItem), _ => EnableTx && !IsTransmitting);
