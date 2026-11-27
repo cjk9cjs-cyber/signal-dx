@@ -184,4 +184,37 @@ public class AutoSequencerTests
         Assert.Equal(Ft8QsoToken.RogerReport, AutoSequencer.ExtractQsoToken("K9CJS N6YYZ R+03"));
         Assert.Equal(Ft8QsoToken.RogerReport, AutoSequencer.ExtractQsoToken("K9CJS N6YYZ R-03"));
     }
+
+    [Fact]
+    public void QsoReports_SentAndReceivedAreTrackedSeparately()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartWorking("W1ABC", "FN42", "-08");
+
+        Assert.True(seq.TryAdvanceFromDecode("K9CJS W1ABC -12", station));
+        seq.Report = "-08";
+        seq.RecordTransmitted("W1ABC K9CJS -08");
+        Assert.Equal("-08", seq.SentReport);
+        Assert.Equal("-12", seq.RcvdReport);
+
+        Assert.True(seq.TryAdvanceFromDecode("K9CJS W1ABC R-05", station));
+        seq.RecordTransmitted("W1ABC K9CJS R-08");
+        Assert.Equal("-08", seq.SentReport);
+        Assert.Equal("-05", seq.RcvdReport);
+    }
+
+    [Fact]
+    public void QsoReports_ClearWhenDxStationChanges()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartWorking("W1ABC", "FN42", "-08");
+        seq.TryAdvanceFromDecode("K9CJS W1ABC -12", station);
+        seq.RecordTransmitted("W1ABC K9CJS -08");
+
+        seq.StartWorking("K1XYZ", "FN31", "-10");
+        Assert.Equal("", seq.SentReport);
+        Assert.Equal("", seq.RcvdReport);
+    }
 }

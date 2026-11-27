@@ -4300,6 +4300,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (message.StartsWith('→'))
                 message = message.TrimStart('→', ' ').Trim();
 
+            _seq.RecordTransmitted(message);
+
             // Show the outbound call in Band/RX activity at the TX frequency.
             PushLocalTxDecode(message);
 
@@ -4909,6 +4911,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (Maidenhead.DistanceMiles(MyGrid, dxGrid) is double mi)
             comment = $"Distance: {Math.Round(mi)} mi";
 
+        string dxCall = DxCall.Trim().ToUpperInvariant();
+        bool seqIsThisDx = _seq.DxCall.Equals(dxCall, StringComparison.OrdinalIgnoreCase);
+
         return new QsoEntry
         {
             UtcStart = _qsoStartUtc ?? DateTime.UtcNow.AddSeconds(-30),
@@ -4918,10 +4923,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             DialMhz = DialMhz,
             MyCall = MyCall,
             MyGrid = MyGrid,
-            DxCall = DxCall.Trim().ToUpperInvariant(),
+            DxCall = dxCall,
             DxGrid = dxGrid,
-            SentRst = Report,
-            RcvdRst = Report,
+            SentRst = seqIsThisDx ? _seq.SentReport : "",
+            RcvdRst = seqIsThisDx ? _seq.RcvdReport : "",
             Comment = comment
         };
     }

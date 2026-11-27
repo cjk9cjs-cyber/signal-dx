@@ -34,12 +34,17 @@ public sealed class AutoSequencer
     public string DxCall { get; private set; } = "";
     public string DxGrid { get; private set; } = "";
     public string Report { get; set; } = "-10";
+    /// <summary>Report we last transmitted to the current DX station (Tx2 / Tx3).</summary>
+    public string SentReport { get; private set; } = "";
+    /// <summary>Report the current DX station last sent to us.</summary>
+    public string RcvdReport { get; private set; } = "";
 
     public void Reset()
     {
         Phase = QsoPhase.Idle;
         DxCall = "";
         DxGrid = "";
+        ClearReports();
     }
 
     public void StartCq()
@@ -47,13 +52,46 @@ public sealed class AutoSequencer
         Phase = QsoPhase.CallingCq;
         DxCall = "";
         DxGrid = "";
+        ClearReports();
+    }
+
+    void SetDxCall(string call)
+    {
+        if (!DxCall.Equals(call, StringComparison.OrdinalIgnoreCase))
+            ClearReports();
+        DxCall = call;
+    }
+
+    void ClearReports()
+    {
+        SentReport = "";
+        RcvdReport = "";
+    }
+
+    /// <summary>Records the report carried by an outgoing Tx2/Tx3 message addressed to the current DX.</summary>
+    public void RecordTransmitted(string message)
+    {
+        if (string.IsNullOrWhiteSpace(DxCall) || string.IsNullOrWhiteSpace(message)) return;
+        var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3 || !parts[0].Equals(DxCall, StringComparison.OrdinalIgnoreCase)) return;
+
+        string last = parts[^1];
+        switch (ClassifyToken(last))
+        {
+            case Ft8QsoToken.Report:
+                SentReport = NormalizeSnrToken(last);
+                break;
+            case Ft8QsoToken.RogerReport:
+                SentReport = NormalizeRogerReport(last);
+                break;
+        }
     }
 
     /// <summary>Operator/auto-seq: next TX is RR73 (Tx4) to the current DX.</summary>
     public void QueueRr73(string? dxCall = null, string? dxGrid = null, string? report = null)
     {
         if (!string.IsNullOrWhiteSpace(dxCall))
-            DxCall = dxCall.Trim().ToUpperInvariant();
+            SetDxCall(dxCall.Trim().ToUpperInvariant());
         if (!string.IsNullOrWhiteSpace(dxGrid))
             DxGrid = dxGrid.Trim().ToUpperInvariant();
         if (!string.IsNullOrWhiteSpace(report))
@@ -81,7 +119,7 @@ public sealed class AutoSequencer
                 or QsoPhase.SentRogerReport or QsoPhase.Sent73
                 or QsoPhase.SendingSeventyThree;
 
-        DxCall = call;
+        SetDxCall(call);
         if (!string.IsNullOrWhiteSpace(grid))
             DxGrid = grid;
 
@@ -110,7 +148,7 @@ public sealed class AutoSequencer
             if (parts.Length >= 4 && call is "DX" or "NA" or "EU" or "AS" or "SA" or "OC" or "AF")
                 call = parts[2];
             if (string.IsNullOrWhiteSpace(call)) return;
-            DxCall = call.ToUpperInvariant();
+            SetDxCall(call.ToUpperInvariant());
             DxGrid = parts.Length >= 3 && LooksLikeGrid(parts[^1]) ? parts[^1].ToUpperInvariant() : DxGrid;
             Phase = QsoPhase.CallingDx;
             return;
@@ -122,7 +160,7 @@ public sealed class AutoSequencer
         if (transmitter.Equals(my, StringComparison.OrdinalIgnoreCase))
             return;
 
-        DxCall = transmitter;
+        SetDxCall(transmitter);
         var token = ExtractQsoToken(message);
 
         if (toMe)
@@ -134,15 +172,13 @@ public sealed class AutoSequencer
                     Phase = QsoPhase.SentReport; // next TX = report (Tx2)
                     break;
                 case Ft8QsoToken.Report:
-                    Report = NormalizeSnrToken(parts[^1]);
-                    if (!string.IsNullOrWhiteSpace(measuredReport))
-                        Report = measuredReport;
+                    RcvdReport = NormalizeSnrToken(parts[^1]);
+                    Report = string.IsNullOrWhiteSpace(measuredReport) ? RcvdReport : measuredReport;
                     Phase = QsoPhase.SentRogerReport; // next TX = R+report (Tx3)
                     break;
                 case Ft8QsoToken.RogerReport:
-                    Report = NormalizeRogerReport(parts[^1]);
-                    if (!string.IsNullOrWhiteSpace(measuredReport))
-                        Report = measuredReport;
+                    RcvdReport = NormalizeRogerReport(parts[^1]);
+                    Report = string.IsNullOrWhiteSpace(measuredReport) ? RcvdReport : measuredReport;
                     Phase = QsoPhase.Sent73; // next TX = RR73 (Tx4)
                     break;
                 case Ft8QsoToken.Rrr:
@@ -204,7 +240,7 @@ public sealed class AutoSequencer
             if (token != Ft8QsoToken.Grid)
                 return false;
 
-            DxCall = theirCall;
+            SetDxCall(theirCall);
             DxGrid = last.ToUpperInvariant();
             Phase = QsoPhase.SentReport; // Tx2 report
             return true;
@@ -213,6 +249,11 @@ public sealed class AutoSequencer
         if (!toMe || string.IsNullOrWhiteSpace(DxCall)) return false;
         if (!parts[1].Equals(DxCall, StringComparison.OrdinalIgnoreCase))
             return false;
+
+        if (token is Ft8QsoToken.Report)
+            RcvdReport = NormalizeSnrToken(last);
+        else if (token is Ft8QsoToken.RogerReport)
+            RcvdReport = NormalizeRogerReport(last);
 
         // We called them with grid (Tx1); their reply picks our next TX.
         if (Phase == QsoPhase.CallingDx)
