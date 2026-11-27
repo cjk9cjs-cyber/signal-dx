@@ -101,6 +101,9 @@ public sealed class StationSettings
     /// <summary>Accept WSJT-X Reply packets (double-click from a companion app) on loopback at this port.</summary>
     public bool UdpReplyEnabled { get; set; } = true;
     public int UdpReplyPort { get; set; } = 2238;
+    /// <summary>Also send Heartbeat, Status and Decode packets to a companion app on loopback, leaving the logger port unchanged.</summary>
+    public bool UdpCompanionEnabled { get; set; }
+    public int UdpCompanionPort { get; set; } = 2237;
     public bool AdifAppendEnabled { get; set; } = true;
     public string AdifPath { get; set; } = "";
     public bool ClubLogEnabled { get; set; }

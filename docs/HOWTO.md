@@ -88,7 +88,7 @@ Useful CAT options:
 | Option | Purpose |
 |--------|---------|
 | **UDP logging** | WSJT-X-compatible UDP (default `127.0.0.1:2237`) for Log4OM, Logger32, Cloudlog, companion apps, etc. |
-| **LoTW upload** | Sign each QSO with TrustedQSL (`tqsl.exe`) and upload to ARRL Logbook of the World. Set under **Settings → LoTW**. |
+| **LoTW upload** | Sign each QSO with TrustedQSL (`tqsl.exe`) and upload to ARRL Logbook of the World. Set under **Settings → Logbooks → LoTW**. |
 | **ADIF append** | Append each logged QSO to a `.adi` file |
 | **PSK Reporter** | Spot decoded stations (FT8/FT4/WSPR) |
 | **WSPRnet** | Upload WSPR spots when in WSPR-2 (`Upload spots` on the WSPR toolbar) |
@@ -106,7 +106,7 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 
 ### G1a. Companion apps (JTAlert-style)
 
-With **Send Status and Decode packets** on, Signal DX sends the WSJT-X Status and Decode messages to `127.0.0.1:2237`, so companion apps can follow the dial, mode, and decodes. A companion app can send **Reply** packets to `127.0.0.1:2238` to work a station, the same as double-clicking it in Band Activity. The Reply port only accepts packets from this PC. Change either port under **Settings → Hamlib / CAT → WSJT-X UDP**.
+With **Send Status and Decode packets** on, Signal DX sends the WSJT-X Status and Decode messages to `127.0.0.1:2237`, so companion apps can follow the dial, mode, and decodes. A companion app can send **Reply** packets to `127.0.0.1:2238` to work a station, the same as double-clicking it in Band Activity. The Reply port only accepts packets from this PC. Change either port under **Settings → Logbooks → WSJT-X UDP**. To also send to a companion app while your logger keeps its own port, tick **Also send Heartbeat, Status and Decode to a companion app** and set the companion port (default 2237).
 
 ### G2. Back up your settings (before a reinstall)
 

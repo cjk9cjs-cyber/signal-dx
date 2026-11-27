@@ -2402,6 +2402,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.UdpStatusDecodeEnabled = value; Raise(); }
     }
 
+    public bool UdpCompanionEnabled
+    {
+        get => _settings.UdpCompanionEnabled;
+        set { _settings.UdpCompanionEnabled = value; Raise(); }
+    }
+
+    public int UdpCompanionPort
+    {
+        get => _settings.UdpCompanionPort;
+        set { _settings.UdpCompanionPort = value; Raise(); }
+    }
+
     public bool UdpReplyEnabled
     {
         get => _settings.UdpReplyEnabled;

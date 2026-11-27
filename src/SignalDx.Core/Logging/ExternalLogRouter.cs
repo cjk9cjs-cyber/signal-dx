@@ -10,6 +10,7 @@ public sealed class ExternalLogRouter : IDisposable
     readonly PskReporterClient _psk = new();
     readonly WsprNetClient _wsprNet = new();
     WsjtxUdpLogger? _udp;
+    WsjtxUdpLogger? _companion;
     WsjtxUdpReceiver? _replyRx;
     int _replyPort;
 
@@ -26,6 +27,8 @@ public sealed class ExternalLogRouter : IDisposable
     {
         _udp?.Dispose();
         _udp = null;
+        _companion?.Dispose();
+        _companion = null;
         _psk.Configure(settings);
         _wsprNet.Configure(settings);
         ConfigureReplyListener(settings);
@@ -35,6 +38,12 @@ public sealed class ExternalLogRouter : IDisposable
             _udp = new WsjtxUdpLogger(settings.UdpLogHost, settings.UdpLogPort);
             _udp.SendHeartbeat();
             StatusChanged?.Invoke($"UDP log → {settings.UdpLogHost}:{settings.UdpLogPort}");
+            if (settings.UdpCompanionEnabled)
+            {
+                _companion = new WsjtxUdpLogger("127.0.0.1", settings.UdpCompanionPort);
+                _companion.SendHeartbeat();
+                StatusChanged?.Invoke($"UDP companion → 127.0.0.1:{settings.UdpCompanionPort}");
+            }
         }
         catch (Exception ex)
         {
@@ -74,12 +83,14 @@ public sealed class ExternalLogRouter : IDisposable
 
     public void ReportDecodes(IEnumerable<DecodeHit> hits, StationSettings settings)
     {
-        if (_udp is not null && settings.UdpLogEnabled && settings.UdpStatusDecodeEnabled)
+        if (settings.UdpLogEnabled && settings.UdpStatusDecodeEnabled)
         {
             foreach (var hit in hits)
             {
-                try { _udp.SendDecode(hit); }
+                try { _udp?.SendDecode(hit); }
                 catch { /* keep decoding if a listener is gone */ }
+                try { _companion?.SendDecode(hit); }
+                catch { /* companion may not be running */ }
             }
         }
         _psk.Enqueue(hits, settings);
@@ -98,6 +109,7 @@ public sealed class ExternalLogRouter : IDisposable
         {
             _udp.UpdateEndpoint(settings.UdpLogHost, settings.UdpLogPort);
             _udp.SendStatus(status);
+            _companion?.SendStatus(status);
             _lastStatus = status;
             _lastStatusUtc = now;
         }
@@ -115,6 +127,7 @@ public sealed class ExternalLogRouter : IDisposable
             {
                 _udp.UpdateEndpoint(settings.UdpLogHost, settings.UdpLogPort);
                 _udp.SendHeartbeat();
+                _companion?.SendHeartbeat();
             }
         }
         catch
@@ -185,6 +198,7 @@ public sealed class ExternalLogRouter : IDisposable
     public void Dispose()
     {
         _udp?.Dispose();
+        _companion?.Dispose();
         _replyRx?.Dispose();
         _ = _psk.DisposeAsync().AsTask();
         _ = _wsprNet.DisposeAsync().AsTask();
