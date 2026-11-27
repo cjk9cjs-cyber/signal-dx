@@ -298,6 +298,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _clock.Tick += OnClock;
         _spectrumTimer.Tick += OnSpectrumTick;
         _heartbeat.Tick += (_, _) => _external.Heartbeat(_settings);
+        _external.ReplyReceived += reply => RunOnUi(() => OnWsjtxReply(reply));
         _settingsPersistTimer.Tick += (_, _) =>
         {
             _settingsPersistTimer.Stop();
@@ -2395,6 +2396,111 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.UdpLogPort = value; Raise(); }
     }
 
+    public bool UdpStatusDecodeEnabled
+    {
+        get => _settings.UdpStatusDecodeEnabled;
+        set { _settings.UdpStatusDecodeEnabled = value; Raise(); }
+    }
+
+    public bool UdpReplyEnabled
+    {
+        get => _settings.UdpReplyEnabled;
+        set { _settings.UdpReplyEnabled = value; Raise(); }
+    }
+
+    public int UdpReplyPort
+    {
+        get => _settings.UdpReplyPort;
+        set { _settings.UdpReplyPort = value; Raise(); }
+    }
+
+    void OnWsjtxReply(WsjtxReply reply)
+    {
+        var hit = FindOrBuildReplyHit(reply);
+        if (hit is null)
+        {
+            Status = $"Reply from companion app had no callsign: {reply.Message}";
+            return;
+        }
+        EnableTxForStation(hit);
+    }
+
+    DecodeHit? FindOrBuildReplyHit(WsjtxReply reply)
+    {
+        DateTime utc = ReplyUtc(reply.TimeMs);
+        var existing = Activity.FirstOrDefault(h =>
+            h.Hz == (int)reply.Hz &&
+            string.Equals(h.Message, reply.Message, StringComparison.Ordinal) &&
+            Math.Abs((h.Utc - utc).TotalSeconds) < 1);
+        if (existing is not null) return existing;
+
+        var parsed = Ft8MessageBuilder.Parse(reply.Message);
+        if (string.IsNullOrWhiteSpace(parsed.DxCall)) return null;
+
+        string? country = CallsignCountry.FromCall(parsed.DxCall);
+        return new DecodeHit
+        {
+            Utc = utc,
+            Mode = reply.Mode switch { "~" => "FT8", "+" => "FT4", _ => Mode },
+            Hz = (int)reply.Hz,
+            SnrDb = reply.Snr,
+            Dt = reply.Dt,
+            Message = reply.Message,
+            DxCall = parsed.DxCall,
+            DxGrid = parsed.DxGrid,
+            Country = country,
+            State = UsState.Resolve(country, parsed.DxGrid, parsed.DxCall),
+            IsCq = parsed.IsCq,
+            DistanceMiles = Maidenhead.DistanceMiles(MyGrid, parsed.DxGrid) is double mi ? Math.Round(mi) : null,
+        };
+    }
+
+    static DateTime ReplyUtc(uint timeMs)
+    {
+        var now = DateTime.UtcNow;
+        var t = now.Date.AddMilliseconds(Math.Min(timeMs, 86_399_999u));
+        if (t > now.AddHours(1)) t = t.AddDays(-1);
+        return t;
+    }
+
+    static void RunOnUi(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+            action();
+        else
+            dispatcher.BeginInvoke(action);
+    }
+
+    void PushWsjtxStatus()
+    {
+        if (!_settings.UdpLogEnabled || !_settings.UdpStatusDecodeEnabled) return;
+        _external.ReportStatus(new WsjtxStatus(
+            DialHz: (ulong)Math.Max(0, Math.Round(DialMhz * 1_000_000d)),
+            Mode: Mode,
+            DxCall: DxCall,
+            Report: Report,
+            TxMode: Mode,
+            TxEnabled: EnableTx,
+            Transmitting: IsTransmitting,
+            Decoding: _capture.IsRunning,
+            RxDf: (uint)Math.Max(0, RxHz),
+            TxDf: (uint)Math.Max(0, TxHz),
+            DeCall: MyCall,
+            DeGrid: MyGrid,
+            DxGrid: DxGrid,
+            TrPeriod: WsjtxTrPeriodSeconds(Mode),
+            Config: "Signal DX",
+            TxMessage: FreeText), _settings);
+    }
+
+    static uint WsjtxTrPeriodSeconds(string? mode) => (mode ?? "").ToUpperInvariant() switch
+    {
+        "FT4" => 7,
+        "WSPR" or "WSPR-2" => 120,
+        _ => 15,
+    };
+
     public bool AdifAppendEnabled
     {
         get => _settings.AdifAppendEnabled;
@@ -3077,6 +3183,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     void OnClock(object? sender, EventArgs e)
     {
         _timing.Tick(DateTime.UtcNow);
+        PushWsjtxStatus();
         UtcClockText = _timing.UtcNow.ToString("HH:mm:ss");
         SlotProgress = _timing.Progress;
         SlotLabel =

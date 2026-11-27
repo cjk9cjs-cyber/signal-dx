@@ -87,7 +87,7 @@ Useful CAT options:
 
 | Option | Purpose |
 |--------|---------|
-| **UDP logging** | WSJT-X-compatible UDP (default `127.0.0.1:2237`) for Log4OM, Logger32, Cloudlog, etc. |
+| **UDP logging** | WSJT-X-compatible UDP (default `127.0.0.1:2237`) for Log4OM, Logger32, Cloudlog, companion apps, etc. |
 | **ADIF append** | Append each logged QSO to a `.adi` file |
 | **PSK Reporter** | Spot decoded stations (FT8/FT4/WSPR) |
 | **WSPRnet** | Upload WSPR spots when in WSPR-2 (`Upload spots` on the WSPR toolbar) |
@@ -102,6 +102,10 @@ Local QSO history is stored under `%LocalAppData%\SignalDx\`. Use **Export ADIF*
 ### G1. Blocked callsigns (optional)
 
 **Settings → Blocked**, or right-click a row in Band Activity / RX Frequency → **Block <call>**. Blocked stations are hidden and never trigger alerts or auto-replies. Entries can be an exact call (`K1ABC`, also matches `K1ABC/P`) or a wildcard (`K1*`, `*XYZ`). Use **Unblock** in the Blocked tab to undo.
+
+### G1a. Companion apps (JTAlert-style)
+
+With **Send Status and Decode packets** on, Signal DX sends the WSJT-X Status and Decode messages to `127.0.0.1:2237`, so companion apps can follow the dial, mode, and decodes. A companion app can send **Reply** packets to `127.0.0.1:2238` to work a station, the same as double-clicking it in Band Activity. The Reply port only accepts packets from this PC. Change either port under **Settings → Hamlib / CAT → WSJT-X UDP**.
 
 ### G2. Back up your settings (before a reinstall)
 
@@ -209,7 +213,7 @@ Signal DX keeps the radio in a digi USB-DATA mode (e.g. DATA-U) when changing ba
 On **Log QSO**, Signal DX can:
 
 - Append ADIF
-- Emit WSJT-X UDP (heartbeat + logged QSO / ADIF packets)
+- Emit WSJT-X UDP (heartbeat, Status, Decode, logged QSO / ADIF packets)
 - Upload Club Log / QRZ when enabled
 - Keep a local JSON log and worked-calls list for Band Activity highlighting
 

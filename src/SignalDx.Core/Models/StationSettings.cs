@@ -96,6 +96,11 @@ public sealed class StationSettings
     public bool UdpLogEnabled { get; set; } = true;
     public string UdpLogHost { get; set; } = "127.0.0.1";
     public int UdpLogPort { get; set; } = 2237;
+    /// <summary>Also send WSJT-X Status and Decode packets so companion apps (JTAlert-style) can follow the band.</summary>
+    public bool UdpStatusDecodeEnabled { get; set; } = true;
+    /// <summary>Accept WSJT-X Reply packets (double-click from a companion app) on loopback at this port.</summary>
+    public bool UdpReplyEnabled { get; set; } = true;
+    public int UdpReplyPort { get; set; } = 2238;
     public bool AdifAppendEnabled { get; set; } = true;
     public string AdifPath { get; set; } = "";
     public bool ClubLogEnabled { get; set; }

@@ -236,8 +236,16 @@
                   <Label Content="Port" Margin="8,0,0,0"/>
                   <TextBox Width="70" Text="{Binding UdpLogPort, UpdateSourceTrigger=PropertyChanged}"/>
                 </WrapPanel>
+                <CheckBox Content="Send Status and Decode packets (for companion apps)" Margin="0,8,0,0"
+                          IsChecked="{Binding UdpStatusDecodeEnabled}"/>
+                <WrapPanel Margin="0,8,0,0">
+                  <CheckBox Content="Accept Reply packets (double-click from a companion app)"
+                            IsChecked="{Binding UdpReplyEnabled}"/>
+                  <Label Content="Reply port" Margin="16,0,0,0"/>
+                  <TextBox Width="70" Text="{Binding UdpReplyPort, UpdateSourceTrigger=PropertyChanged}"/>
+                </WrapPanel>
                 <TextBlock Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           Text="Sends Heartbeat, QSO Logged, and Logged ADIF packets compatible with WSJT-X/JTDX listeners."/>
+                           Text="Sends Heartbeat, QSO Logged, and Logged ADIF packets compatible with WSJT-X/JTDX listeners. Status and Decode packets let companion apps follow the dial, mode, and decodes."/>
               </StackPanel>
             </Border>
 
