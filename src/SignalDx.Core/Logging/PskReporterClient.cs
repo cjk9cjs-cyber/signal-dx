@@ -19,13 +19,14 @@ public sealed class PskReporterClient : IAsyncDisposable
     static readonly TimeSpan SendInterval = TimeSpan.FromSeconds(120);
     static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(300);
 
-    // Receiver template (link 0x9992): call, grid, software
+    // Receiver template (link 0x9992): call, grid, software, antenna
     static readonly byte[] RxFormatHeader =
     [
-        0x00, 0x03, 0x00, 0x24, 0x99, 0x92, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x03, 0x00, 0x2C, 0x99, 0x92, 0x00, 0x04, 0x00, 0x00,
         0x80, 0x02, 0xFF, 0xFF, 0x00, 0x00, 0x76, 0x8F,
         0x80, 0x04, 0xFF, 0xFF, 0x00, 0x00, 0x76, 0x8F,
         0x80, 0x08, 0xFF, 0xFF, 0x00, 0x00, 0x76, 0x8F,
+        0x80, 0x09, 0xFF, 0xFF, 0x00, 0x00, 0x76, 0x8F,
         0x00, 0x00
     ];
 
@@ -51,6 +52,7 @@ public sealed class PskReporterClient : IAsyncDisposable
     uint _sequence;
     string _rxCall = "";
     string _rxGrid = "";
+    string _antenna = "";
     bool _enabled;
     int _sentTotal;
 
@@ -69,6 +71,7 @@ public sealed class PskReporterClient : IAsyncDisposable
         _enabled = settings.PskReporterEnabled;
         _rxCall = (settings.MyCall ?? "").Trim().ToUpperInvariant();
         _rxGrid = (settings.MyGrid ?? "").Trim().ToUpperInvariant();
+        _antenna = (settings.PskReporterAntenna ?? "").Trim();
         if (_enabled && !string.IsNullOrWhiteSpace(_rxCall))
             StatusChanged?.Invoke($"PSK Reporter on ({_rxCall} {_rxGrid})");
         else if (!_enabled)
@@ -83,6 +86,7 @@ public sealed class PskReporterClient : IAsyncDisposable
 
         _rxCall = my.ToUpperInvariant();
         _rxGrid = (settings.MyGrid ?? "").Trim().ToUpperInvariant();
+        _antenna = (settings.PskReporterAntenna ?? "").Trim();
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         int added = 0;
@@ -198,19 +202,21 @@ public sealed class PskReporterClient : IAsyncDisposable
         List<Spot> batch;
         string rxCall;
         string rxGrid;
+        string antenna;
         bool enabled;
         lock (_gate)
         {
             enabled = _enabled;
             rxCall = _rxCall;
             rxGrid = _rxGrid;
+            antenna = _antenna;
             if (!enabled || _pending.Count == 0 || string.IsNullOrWhiteSpace(rxCall))
                 return;
             batch = _pending.ToList();
             _pending.Clear();
         }
 
-        byte[] packet = BuildPacket(rxCall, rxGrid, batch, ref _sequence, _observationId);
+        byte[] packet = BuildPacket(rxCall, rxGrid, batch, ref _sequence, _observationId, antenna);
         using var udp = new UdpClient();
         await udp.SendAsync(packet, packet.Length, Host, Port).ConfigureAwait(false);
         Interlocked.Add(ref _sentTotal, batch.Count);
@@ -218,7 +224,8 @@ public sealed class PskReporterClient : IAsyncDisposable
     }
 
     public static byte[] BuildPacket(
-        string rxCall, string rxGrid, IReadOnlyList<Spot> spots, ref uint sequence, uint observationId)
+        string rxCall, string rxGrid, IReadOnlyList<Spot> spots, ref uint sequence, uint observationId,
+        string antenna = "")
     {
         var ms = new MemoryStream();
         // IPFIX header placeholder
@@ -228,7 +235,7 @@ public sealed class PskReporterClient : IAsyncDisposable
         if (spots.Count > 0)
             ms.Write(TxFormatHeader);
 
-        WriteReceiverSet(ms, rxCall, rxGrid);
+        WriteReceiverSet(ms, rxCall, rxGrid, antenna);
         if (spots.Count > 0)
             WriteSenderSet(ms, spots);
 
@@ -242,7 +249,7 @@ public sealed class PskReporterClient : IAsyncDisposable
         return packet;
     }
 
-    static void WriteReceiverSet(MemoryStream ms, string call, string grid)
+    static void WriteReceiverSet(MemoryStream ms, string call, string grid, string antenna)
     {
         int start = (int)ms.Length;
         ms.WriteByte(0x99);
@@ -251,6 +258,7 @@ public sealed class PskReporterClient : IAsyncDisposable
         WriteUtf(ms, call);
         WriteUtf(ms, grid);
         WriteUtf(ms, SoftwareId);
+        WriteUtf(ms, antenna);
         Pad4(ms, start);
         int len = (int)ms.Length - start;
         Span<byte> lenBuf = stackalloc byte[2];

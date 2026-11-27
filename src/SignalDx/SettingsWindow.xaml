@@ -260,8 +260,12 @@
               <StackPanel>
                 <TextBlock Text="PSK Reporter" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
                 <CheckBox Content="Enable PSK Reporter spotting" IsChecked="{Binding PskReporterEnabled}" Margin="0,0,0,6"/>
+                <WrapPanel Margin="0,0,0,6">
+                  <Label Content="Antenna"/>
+                  <TextBox Width="320" Text="{Binding PskReporterAntenna, UpdateSourceTrigger=PropertyChanged}"/>
+                </WrapPanel>
                 <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           Text="Sends decoded FT8/FT4/WSPR spots (call, RF freq, SNR, mode) to report.pskreporter.info every ~2 minutes. WSPR2 is reported as mode WSPR. Requires your call and grid."/>
+                           Text="Sends decoded FT8/FT4/WSPR spots (call, RF freq, SNR, mode) to report.pskreporter.info every ~2 minutes. WSPR2 is reported as mode WSPR. Requires your call and grid. The antenna description is shown with your reports on PSK Reporter."/>
               </StackPanel>
             </Border>
 

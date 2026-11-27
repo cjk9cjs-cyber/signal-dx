@@ -148,6 +148,9 @@ public sealed class StationSettings
     /// <summary>Upload decoded callspots to PSK Reporter (report.pskreporter.info).</summary>
     public bool PskReporterEnabled { get; set; } = true;
 
+    /// <summary>Antenna description sent to PSK Reporter with each spot batch (e.g. "Dipole 40m, 30 ft").</summary>
+    public string PskReporterAntenna { get; set; } = "";
+
     // —— WSPR-2 (JTDX / WSJT-X style) ——
     /// <summary>Average % of 2-minute slots devoted to TX (random schedule). Typical 20–25.</summary>
     public int WsprTxPercent { get; set; } = 20;

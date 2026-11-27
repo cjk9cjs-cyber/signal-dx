@@ -2618,6 +2618,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    public string PskReporterAntenna
+    {
+        get => _settings.PskReporterAntenna;
+        set
+        {
+            _settings.PskReporterAntenna = value ?? "";
+            Raise();
+            _external.Configure(_settings);
+        }
+    }
+
     public string QrzInfoText
     {
         get => _qrzInfoText;
