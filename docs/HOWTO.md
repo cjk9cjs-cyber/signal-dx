@@ -88,6 +88,7 @@ Useful CAT options:
 | Option | Purpose |
 |--------|---------|
 | **UDP logging** | WSJT-X-compatible UDP (default `127.0.0.1:2237`) for Log4OM, Logger32, Cloudlog, companion apps, etc. |
+| **LoTW upload** | Sign each QSO with TrustedQSL (`tqsl.exe`) and upload to ARRL Logbook of the World. Set under **Settings → LoTW**. |
 | **ADIF append** | Append each logged QSO to a `.adi` file |
 | **PSK Reporter** | Spot decoded stations (FT8/FT4/WSPR) |
 | **WSPRnet** | Upload WSPR spots when in WSPR-2 (`Upload spots` on the WSPR toolbar) |

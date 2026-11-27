@@ -111,6 +111,12 @@ public sealed class StationSettings
     /// <summary>QRZ.com account for XML callsign lookup (Logbooks tab).</summary>
     public string QrzUsername { get; set; } = "";
     public string QrzPassword { get; set; } = "";
+    /// <summary>Sign each logged QSO with TrustedQSL and upload it to ARRL Logbook of the World.</summary>
+    public bool LotwEnabled { get; set; }
+    /// <summary>Path to tqsl.exe; empty auto-detects the default TrustedQSL install.</summary>
+    public string LotwTqslPath { get; set; } = "";
+    /// <summary>Station Location name as configured in TrustedQSL.</summary>
+    public string LotwStationLocation { get; set; } = "";
     /// <summary>Play a sound when a decode is addressed to MyCall.</summary>
     public bool CallAlertEnabled { get; set; } = true;
     /// <summary>Optional custom WAV path; empty uses Assets/call-alert.wav beside the exe.</summary>

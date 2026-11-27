@@ -6,6 +6,7 @@ public sealed class ExternalLogRouter : IDisposable
 {
     readonly ClubLogClient _clubLog = new();
     readonly QrzLogClient _qrz = new();
+    readonly LotwClient _lotw = new();
     readonly PskReporterClient _psk = new();
     readonly WsprNetClient _wsprNet = new();
     WsjtxUdpLogger? _udp;
@@ -169,6 +170,13 @@ public sealed class ExternalLogRouter : IDisposable
         {
             var (ok, msg) = await _qrz.UploadAsync(qso, settings.QrzApiKey, ct).ConfigureAwait(false);
             notes.Add(ok ? "QRZ" : msg);
+        }
+
+        if (settings.LotwEnabled)
+        {
+            var (ok, msg) = await _lotw.UploadAsync(
+                qso, settings.LotwTqslPath, settings.LotwStationLocation, ct).ConfigureAwait(false);
+            notes.Add(ok ? "LoTW" : msg);
         }
 
         StatusChanged?.Invoke("External log: " + string.Join(", ", notes));

@@ -2531,6 +2531,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.ClubLogPassword = value; Raise(); }
     }
 
+    public bool LotwEnabled
+    {
+        get => _settings.LotwEnabled;
+        set { _settings.LotwEnabled = value; Raise(); }
+    }
+
+    public string LotwTqslPath
+    {
+        get => _settings.LotwTqslPath;
+        set { _settings.LotwTqslPath = value; Raise(); }
+    }
+
+    public string LotwStationLocation
+    {
+        get => _settings.LotwStationLocation;
+        set { _settings.LotwStationLocation = value; Raise(); }
+    }
+
     public bool QrzEnabled
     {
         get => _settings.QrzEnabled;

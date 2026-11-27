@@ -340,6 +340,24 @@
                            Text="QRZ.com login for XML callsign lookup. Full name/grid/country needs a QRZ Logbook Data subscription. Double-click an RX row or use the QRZ button to view the call on qrz.com."/>
               </StackPanel>
             </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" Padding="12" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="LoTW (ARRL Logbook of the World)" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <CheckBox Content="Sign and upload on Log QSO" IsChecked="{Binding LotwEnabled}" Margin="0,0,0,8"/>
+                <DockPanel Margin="0,0,0,6">
+                  <Label Content="TQSL path" Width="110" DockPanel.Dock="Left"/>
+                  <TextBox Text="{Binding LotwTqslPath, UpdateSourceTrigger=PropertyChanged}"/>
+                </DockPanel>
+                <DockPanel>
+                  <Label Content="Station Location" Width="110" DockPanel.Dock="Left"/>
+                  <TextBox Text="{Binding LotwStationLocation, UpdateSourceTrigger=PropertyChanged}"/>
+                </DockPanel>
+                <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Needs TrustedQSL (tqsl.exe) with your callsign certificate installed. Station Location must match a location name in TQSL. Leave TQSL path blank to use the default install folder."/>
+              </StackPanel>
+            </Border>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
