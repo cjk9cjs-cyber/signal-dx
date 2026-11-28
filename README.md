@@ -2,6 +2,8 @@
 
 Windows digi operator console inspired by JTDX — waterfall, FT8/FT4/WSPR-2 slot timing, auto-sequence, CAT control, and external logbook bridges.
 
+**Download for Windows:** [Latest release](https://github.com/cjk9cjs-cyber/signal-dx/releases/latest) — run the `SignalDx-<version>-Setup.exe` installer (self-contained, no .NET install needed).
+
 **Operator guide (first-time setup + features):** [docs/HOWTO.md](docs/HOWTO.md) · [PDF download](https://github.com/cjk9cjs-cyber/signal-dx/releases/latest/download/SignalDx-HOWTO.pdf)
 
 In the app: toolbar **How-to**, or **Settings → About**.
