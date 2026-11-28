@@ -82,4 +82,33 @@ public class Ft8MessageBuilderTests
         Assert.False(Ft8MessageBuilder.LooksLikeCall("599"));
         Assert.Equal("Madagascar", SignalDx.Geo.CallsignCountry.FromCall("5R8IC"));
     }
+
+    [Theory]
+    [InlineData("W1ABC", true)]
+    [InlineData("K9CJS", true)]
+    [InlineData("W1ABC/P", true)]
+    [InlineData("W1ABC/R", true)]
+    [InlineData("2E0ABC", true)]
+    [InlineData("A22A", true)]
+    [InlineData("4U1UN", true)]
+    [InlineData("W1ABC/7", false)]
+    [InlineData("W1AW/0", false)]
+    [InlineData("W1ABC/M", false)]
+    [InlineData("EA8/W1ABC", false)]
+    [InlineData("K1ABC/QRP", false)]
+    [InlineData("3DA0AQ", false)]
+    public void IsStandardFt8Call_ClassifiesCompoundAndNonstandardCalls(string call, bool expected)
+    {
+        Assert.Equal(expected, Ft8MessageBuilder.IsStandardFt8Call(call));
+    }
+
+    [Fact]
+    public void Build_WrapsNonstandardCompoundDxCallInAngleBrackets()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        Assert.Equal("<W1ABC/7> K9CJS -10", Ft8MessageBuilder.Build("{dxcall} {mycall} {snr}", station, "W1ABC/7", "-10"));
+        Assert.Equal("<W1ABC/7> K9CJS -10", Ft8MessageBuilder.Build("{dxcall} {mycall} {snr}", station, "<W1ABC/7>", "-10"));
+        Assert.Equal("<EA8/W1ABC> K9CJS EN52", Ft8MessageBuilder.Build("{dxcall} {mycall} {mygrid}", station, "EA8/W1ABC", "-10"));
+        Assert.Equal("W1ABC/P K9CJS -10", Ft8MessageBuilder.Build("{dxcall} {mycall} {snr}", station, "W1ABC/P", "-10"));
+    }
 }

@@ -253,4 +253,72 @@ public class AutoSequencerTests
         Assert.False(seq.TryAdvanceFromDecode("K9CJS <...> FN42", station));
         Assert.Equal(QsoPhase.CallingCq, seq.Phase);
     }
+
+    [Fact]
+    public void CompoundSlashCall_FullQsoFlowWithHashedTxAndRx()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartCq();
+
+        // Type 4 nonstandard call answering CQ without a grid → Tx2 report, wrapped in <>
+        Assert.True(seq.TryAdvanceFromDecode("<K9CJS> W1ABC/7", station));
+        Assert.Equal("W1ABC/7", seq.DxCall);
+        Assert.Equal(QsoPhase.SentReport, seq.Phase);
+        Assert.Equal("<W1ABC/7> K9CJS -10", seq.NextTxMessage(station));
+
+        seq.RecordTransmitted("<W1ABC/7> K9CJS -10");
+        Assert.Equal("-10", seq.SentReport);
+
+        // Their hashed R-report advances to Tx4 RR73
+        Assert.True(seq.TryAdvanceFromDecode("K9CJS <W1ABC/7> R-08", station));
+        Assert.Equal(QsoPhase.Sent73, seq.Phase);
+        Assert.Equal("-08", seq.RcvdReport);
+        Assert.Equal("<W1ABC/7> K9CJS RR73", seq.NextTxMessage(station));
+
+        // Their hashed 73 finishes QSO
+        Assert.True(seq.TryAdvanceFromDecode("<K9CJS> W1ABC/7 73", station));
+        Assert.Equal(QsoPhase.Complete, seq.Phase);
+    }
+
+    [Fact]
+    public void CompoundSlashCall_CqDirectReportReply_AdvancesToTx3()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartCq();
+
+        Assert.True(seq.TryAdvanceFromDecode("K9CJS <W1ABC/7> -12", station));
+        Assert.Equal("W1ABC/7", seq.DxCall);
+        Assert.Equal("-12", seq.RcvdReport);
+        Assert.Equal(QsoPhase.SentRogerReport, seq.Phase);
+        Assert.Equal("<W1ABC/7> K9CJS R-10", seq.NextTxMessage(station));
+    }
+
+    [Fact]
+    public void ArmFromDecode_Type4TwoTokenCall_ArmsTx2NotTx1()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+
+        seq.ArmFromDecode("<K9CJS> W1ABC/7", station, "-09");
+        Assert.Equal("W1ABC/7", seq.DxCall);
+        Assert.Equal(QsoPhase.SentReport, seq.Phase);
+        Assert.Equal("<W1ABC/7> K9CJS -09", seq.NextTxMessage(station));
+    }
+
+    [Fact]
+    public void SetManualPhase_SwitchesFromTx1ToTx2WithoutReverting()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartWorking("W1ABC/7", "", "-07");
+        Assert.Equal(QsoPhase.CallingDx, seq.Phase);
+        Assert.Equal("<W1ABC/7> K9CJS EN52", seq.NextTxMessage(station));
+
+        // Operator manually selects Tx2 — sequencer stays on Tx2 for NextTxMessage.
+        seq.SetManualPhase(QsoPhase.SentReport, "W1ABC/7", "", "-07");
+        Assert.Equal(QsoPhase.SentReport, seq.Phase);
+        Assert.Equal("<W1ABC/7> K9CJS -07", seq.NextTxMessage(station));
+    }
 }

@@ -35,9 +35,66 @@ public static class Ft8MessageBuilder
         return template
             .Replace("{mycall}", station.MyCall.Trim().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase)
             .Replace("{mygrid}", station.MyGrid.Trim().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase)
-            .Replace("{dxcall}", string.IsNullOrWhiteSpace(dxCall) ? "DXCALL" : dxCall.Trim().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase)
+            .Replace("{dxcall}", FormatTxDxCall(dxCall), StringComparison.OrdinalIgnoreCase)
             .Replace("{snr}", string.IsNullOrWhiteSpace(snr) ? "+00" : snr.Trim(), StringComparison.OrdinalIgnoreCase)
             .Trim();
+    }
+
+    /// <summary>
+    /// Format a DX callsign for outbound FT8/FT4 messages. Standard calls (plus <c>/P</c> and <c>/R</c>)
+    /// are sent verbatim; nonstandard/compound calls like <c>W1ABC/7</c>, <c>W1ABC/M</c>, or <c>EA8/W1ABC</c>
+    /// must be hashed as <c>&lt;CALL&gt;</c> so <c>ft8code</c> encodes them as Type 1 without stripping the suffix.
+    /// </summary>
+    public static string FormatTxDxCall(string? dxCall)
+    {
+        if (string.IsNullOrWhiteSpace(dxCall)) return "DXCALL";
+        string clean = (UnwrapHashed(dxCall) ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(clean) || clean == "...") return "DXCALL";
+        return IsStandardFt8Call(clean) ? clean : $"<{clean}>";
+    }
+
+    /// <summary>
+    /// True if <paramref name="call"/> fits WSJT-X Pack77 standard callsign encoding (optional <c>/P</c> or <c>/R</c> only).
+    /// Any other compound/slash or long callsign is nonstandard and must be wrapped in <c>&lt;...&gt;</c> when addressed.
+    /// </summary>
+    public static bool IsStandardFt8Call(string? call)
+    {
+        if (string.IsNullOrWhiteSpace(call)) return false;
+        string s = call.Trim().ToUpperInvariant();
+        if (s.EndsWith("/R", StringComparison.Ordinal) || s.EndsWith("/P", StringComparison.Ordinal))
+            s = s[..^2];
+        if (s.Length is < 3 or > 6) return false;
+
+        int slash = s.IndexOf('/');
+        if (slash >= 0) return false;
+
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
+                return false;
+        }
+
+        // Standard Pack77 layout: prefix (1-2 chars, at least 1 letter) + call-area digit + 1-3 suffix letters.
+        int suffixStart = s.Length;
+        while (suffixStart > 0 && s[suffixStart - 1] >= 'A' && s[suffixStart - 1] <= 'Z')
+            suffixStart--;
+        int suffixLen = s.Length - suffixStart;
+        if (suffixLen is < 1 or > 3) return false;
+        if (suffixStart < 2 || suffixStart > 3) return false;
+
+        char digit = s[suffixStart - 1];
+        if (digit < '0' || digit > '9') return false;
+
+        int prefixLen = suffixStart - 1;
+        if (prefixLen is < 1 or > 2) return false;
+        bool hasPrefixLetter = false;
+        for (int i = 0; i < prefixLen; i++)
+        {
+            if (s[i] >= 'A' && s[i] <= 'Z')
+                hasPrefixLetter = true;
+        }
+        return hasPrefixLetter;
     }
 
     /// <summary>

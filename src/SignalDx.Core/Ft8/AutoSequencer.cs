@@ -57,6 +57,7 @@ public sealed class AutoSequencer
 
     void SetDxCall(string call)
     {
+        call = (Ft8MessageBuilder.UnwrapHashed(call) ?? "").Trim().ToUpperInvariant();
         if (!DxCall.Equals(call, StringComparison.OrdinalIgnoreCase))
             ClearReports();
         DxCall = call;
@@ -72,6 +73,7 @@ public sealed class AutoSequencer
     public void RecordTransmitted(string message)
     {
         if (string.IsNullOrWhiteSpace(DxCall) || string.IsNullOrWhiteSpace(message)) return;
+        message = Ft8MessageBuilder.UnwrapHashedTokens(message);
         var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3 || !parts[0].Equals(DxCall, StringComparison.OrdinalIgnoreCase)) return;
 
@@ -87,11 +89,27 @@ public sealed class AutoSequencer
         }
     }
 
+    /// <summary>Operator manually picked a TX macro (Tx1–Tx5) — align phase so AutoSequence does not revert it.</summary>
+    public void SetManualPhase(QsoPhase phase, string? dxCall = null, string? dxGrid = null, string? report = null)
+    {
+        if (!string.IsNullOrWhiteSpace(dxCall))
+        {
+            string clean = (Ft8MessageBuilder.UnwrapHashed(dxCall) ?? "").Trim().ToUpperInvariant();
+            if (!string.IsNullOrWhiteSpace(clean) && clean != "...")
+                SetDxCall(clean);
+        }
+        if (!string.IsNullOrWhiteSpace(dxGrid))
+            DxGrid = dxGrid.Trim().ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(report))
+            Report = report;
+        Phase = phase;
+    }
+
     /// <summary>Operator/auto-seq: next TX is RR73 (Tx4) to the current DX.</summary>
     public void QueueRr73(string? dxCall = null, string? dxGrid = null, string? report = null)
     {
         if (!string.IsNullOrWhiteSpace(dxCall))
-            SetDxCall(dxCall.Trim().ToUpperInvariant());
+            SetDxCall(dxCall);
         if (!string.IsNullOrWhiteSpace(dxGrid))
             DxGrid = dxGrid.Trim().ToUpperInvariant();
         if (!string.IsNullOrWhiteSpace(report))
@@ -105,7 +123,7 @@ public sealed class AutoSequencer
 
     public void StartWorking(string dxCall, string? dxGrid, string report, bool forceRestart = false)
     {
-        string call = dxCall.Trim().ToUpperInvariant();
+        string call = (Ft8MessageBuilder.UnwrapHashed(dxCall) ?? "").Trim().ToUpperInvariant();
         string grid = dxGrid?.Trim().ToUpperInvariant() ?? "";
         Report = report;
 
@@ -193,7 +211,10 @@ public sealed class AutoSequencer
                     Phase = QsoPhase.Sent73;
                     break;
                 default:
-                    Phase = QsoPhase.CallingDx;
+                    // Type 4 nonstandard call answering us without a grid (e.g. "<K9CJS> W1ABC/7") → Tx2 report.
+                    Phase = parts.Length == 2 && Ft8MessageBuilder.LooksLikeCall(transmitter)
+                        ? QsoPhase.SentReport
+                        : QsoPhase.CallingDx;
                     break;
             }
             return;
@@ -237,17 +258,36 @@ public sealed class AutoSequencer
             string theirCall = parts[1].ToUpperInvariant();
             if (theirCall.Equals(my, StringComparison.OrdinalIgnoreCase))
                 return false;
-
-            // Classic first reply to CQ is MYCALL THEIRCALL GRID only.
-            if (token != Ft8QsoToken.Grid)
-                return false;
-            if (theirCall.StartsWith('<'))
+            if (theirCall.StartsWith('<') || !Ft8MessageBuilder.LooksLikeCall(theirCall))
                 return false;
 
-            SetDxCall(theirCall);
-            DxGrid = last.ToUpperInvariant();
-            Phase = QsoPhase.SentReport; // Tx2 report
-            return true;
+            // Classic reply to CQ: MYCALL THEIRCALL GRID → Tx2 report.
+            if (token == Ft8QsoToken.Grid)
+            {
+                SetDxCall(theirCall);
+                DxGrid = last.ToUpperInvariant();
+                Phase = QsoPhase.SentReport; // Tx2 report
+                return true;
+            }
+
+            // Type 4 nonstandard/compound call answering CQ without a grid (e.g. "<K9CJS> W1ABC/7") → Tx2 report.
+            if (parts.Length == 2)
+            {
+                SetDxCall(theirCall);
+                Phase = QsoPhase.SentReport; // Tx2 report
+                return true;
+            }
+
+            // Direct report reply to CQ (common for nonstandard calls: "K9CJS <W1ABC/7> -10") → Tx3 R+report.
+            if (token == Ft8QsoToken.Report)
+            {
+                SetDxCall(theirCall);
+                RcvdReport = NormalizeSnrToken(last);
+                Phase = QsoPhase.SentRogerReport; // Tx3 R+report
+                return true;
+            }
+
+            return false;
         }
 
         if (!toMe || string.IsNullOrWhiteSpace(DxCall)) return false;
@@ -286,6 +326,11 @@ public sealed class AutoSequencer
                     Phase = QsoPhase.SentReport; // Tx2
                     return true;
                 default:
+                    if (parts.Length == 2)
+                    {
+                        Phase = QsoPhase.SentReport; // Type 4 "<K9CJS> W1ABC/7" → Tx2
+                        return true;
+                    }
                     return false;
             }
         }

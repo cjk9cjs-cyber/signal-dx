@@ -100,6 +100,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     bool _rxHistorySuppressed;
     /// <summary>When true, every TX period sends CQ until a real grid reply arrives (or user picks a station).</summary>
     bool _holdCq;
+    /// <summary>When true, operator manually picked a custom/free-text macro and AutoSequence must not overwrite FreeText.</summary>
+    bool _manualTxOverride;
     /// <summary>
     /// Auto-seq: wait for decode of the prior period before keying this slot,
     /// so a returned call advances the macro before we TX (instead of sending the old one).
@@ -1618,7 +1620,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _dxCall;
         set
         {
-            string normalized = (value ?? "").Trim().ToUpperInvariant();
+            string raw = (value ?? "").Trim().ToUpperInvariant();
+            string normalized = raw.Length > 2 && raw[0] == '<' && raw[^1] == '>' && raw != "<...>"
+                ? raw[1..^1].Trim()
+                : raw;
             if (!SetField(ref _dxCall, normalized)) return;
             Raise(nameof(ActiveQsoCall));
             RefreshMacroPreviews();
@@ -1894,6 +1899,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         // User explicitly chose a station — leave CQ hold / any leftover WSPR beacon.
         _holdCq = false;
+        _manualTxOverride = false;
         if (IsWsprMode)
         {
             Status = "WSPR-2 is beacon-only — switch to FT8/FT4 to call a station.";
@@ -2004,7 +2010,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             msg = BuildWsprMessage();
         else if (_holdCq)
             msg = BuildCqMessage();
-        else if (AutoSequence)
+        else if (AutoSequence && !_manualTxOverride)
             msg = _seq.NextTxMessage(_settings) ?? FreeText;
         else
             msg = FreeText;
@@ -3227,6 +3233,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SelectedActivityDecode = null;
         SelectedRxDecode = null;
         _holdCq = true;
+        _manualTxOverride = false;
         _cqSessionUtc = DateTime.UtcNow;
         _qsoLogPrompted = false;
         _deferTxUntilDecode = false;
@@ -3312,7 +3319,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (AutoSequence)
+        if (AutoSequence && !_manualTxOverride)
         {
             string? next = _seq.NextTxMessage(_settings);
             if (!string.IsNullOrWhiteSpace(next) && _seq.Phase is not QsoPhase.Idle and not QsoPhase.Complete)
@@ -3682,7 +3689,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (IsDecodeFromWorkingStation(hit) &&
             (qsoToken is Ft8QsoToken.SeventyThree or Ft8QsoToken.Rr73))
         {
-            var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var parts = Ft8MessageBuilder.UnwrapHashedTokens(hit.Message)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
             string their = parts.Length >= 2 ? parts[1] : DxCall;
 
             // Already queued/sent RR73 or plain 73 — reciprocal farewell ends the call.
@@ -3768,6 +3776,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void ApplySeqToUi(DecodeHit hit, string status)
     {
+        _manualTxOverride = false;
         PhaseLabel = _seq.Phase.ToString();
         if (!string.IsNullOrWhiteSpace(_seq.DxCall))
             DxCall = _seq.DxCall;
@@ -3805,17 +3814,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     bool IsFreeTextCq() =>
         FreeText.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Incoming call to us with grid or report (someone initiating / returning).</summary>
+    /// <summary>Incoming call to us with grid, report, or Type 4 nonstandard call (someone initiating / returning).</summary>
     bool LooksLikeIncomingCall(DecodeHit hit)
     {
-        var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 3) return false;
-        if (!parts[0].Equals(MyCall.Trim(), StringComparison.OrdinalIgnoreCase))
+        string clean = Ft8MessageBuilder.UnwrapHashedTokens(hit.Message);
+        var parts = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+        string my = MyCall.Trim();
+        if (!parts[0].Equals(my, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (parts[1].Equals(MyCall.Trim(), StringComparison.OrdinalIgnoreCase))
+        if (parts[1].Equals(my, StringComparison.OrdinalIgnoreCase) || parts[1].StartsWith('<'))
             return false;
 
-        var token = AutoSequencer.ExtractQsoToken(hit.Message);
+        if (parts.Length == 2)
+            return Ft8MessageBuilder.LooksLikeCall(parts[1]);
+
+        var token = AutoSequencer.ExtractQsoToken(clean);
         return token is Ft8QsoToken.Grid or Ft8QsoToken.Report or Ft8QsoToken.RogerReport;
     }
 
@@ -3823,7 +3837,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     bool IsDecodeFromWorkingStation(DecodeHit hit)
     {
         string work = !string.IsNullOrWhiteSpace(_seq.DxCall) ? _seq.DxCall : DxCall;
-        var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string clean = Ft8MessageBuilder.UnwrapHashedTokens(hit.Message);
+        var parts = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2) return false;
 
         string my = MyCall.Trim();
@@ -3845,25 +3860,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return false;
     }
 
-    /// <summary>True when decode is MYCALL THEIRCALL GRID (first reply to our CQ).</summary>
+    /// <summary>True when decode is a valid first reply to our CQ (grid, Type 4 compound call, or direct report).</summary>
     bool TryAcceptCqReply(DecodeHit hit)
     {
         // While CQ hold is armed, ignore decodes that predate this CQ session.
         if (_holdCq && hit.Utc < _cqSessionUtc.AddSeconds(-2))
             return false;
 
-        var parts = hit.Message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 3) return false;
+        string clean = Ft8MessageBuilder.UnwrapHashedTokens(hit.Message);
+        var parts = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
 
         string my = MyCall.Trim();
         if (!parts[0].Equals(my, StringComparison.OrdinalIgnoreCase))
             return false;
 
         string their = parts[1];
-        if (their.Equals(my, StringComparison.OrdinalIgnoreCase))
+        if (their.Equals(my, StringComparison.OrdinalIgnoreCase) || their.StartsWith('<'))
             return false;
 
-        return AutoSequencer.ExtractQsoToken(hit.Message) == Ft8QsoToken.Grid;
+        if (parts.Length == 2)
+            return Ft8MessageBuilder.LooksLikeCall(their);
+
+        var token = AutoSequencer.ExtractQsoToken(clean);
+        return token is Ft8QsoToken.Grid or Ft8QsoToken.Report;
     }
 
     const bool AllCall7DimmingEnabled = false;
@@ -4024,6 +4044,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(SelectedRxDecode));
     }
 
+    void SyncSequencerForManualMacro(TxMacro macro, string msg)
+    {
+        QsoPhase? phase = macro.Kind switch
+        {
+            TxMacroKind.Report => QsoPhase.CallingDx,
+            TxMacroKind.RReport => QsoPhase.SentReport,
+            TxMacroKind.Rrr => QsoPhase.SentRogerReport,
+            TxMacroKind.SeventyThree => QsoPhase.Sent73,
+            TxMacroKind.FreeText when AutoSequencer.ExtractQsoToken(msg) == Ft8QsoToken.SeventyThree
+                => QsoPhase.SendingSeventyThree,
+            _ => null
+        };
+
+        if (phase is QsoPhase p)
+        {
+            _manualTxOverride = false;
+            _seq.SetManualPhase(p, DxCall, DxGrid, Report);
+            PhaseLabel = _seq.Phase.ToString();
+        }
+        else
+        {
+            _manualTxOverride = true;
+        }
+    }
+
     void SendMacro(MacroDisplayItem? item)
     {
         if (item is null) return;
@@ -4032,15 +4077,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ? FreeText
             : Ft8MessageBuilder.Build(macro.Template, _settings, DxCall, Report);
 
+        bool isCq = (macro.Kind is TxMacroKind.Cq or TxMacroKind.Custom) &&
+                    msg.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase);
+
         if (!EnableTx)
         {
-            if ((macro.Kind is TxMacroKind.Cq or TxMacroKind.Custom) &&
-                msg.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase))
+            if (isCq)
             {
                 _settings.CqTemplate = string.IsNullOrWhiteSpace(macro.Template)
                     ? "CQ {mycall} {mygrid}"
                     : macro.Template.Trim();
                 SaveSettingsNow();
+                _manualTxOverride = false;
+            }
+            else
+            {
+                SyncSequencerForManualMacro(macro, msg);
             }
             _holdCq = false;
             FreeText = msg;
@@ -4050,8 +4102,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         // CQ / CQ DX / CQ EU: arm CQ-hold and clear the prior DX so the next slot
         // does not fall back to AutoSequence calling the previous station.
-        if ((macro.Kind is TxMacroKind.Cq or TxMacroKind.Custom) &&
-            msg.StartsWith("CQ ", StringComparison.OrdinalIgnoreCase))
+        if (isCq)
         {
             _settings.CqTemplate = string.IsNullOrWhiteSpace(macro.Template)
                 ? "CQ {mycall} {mygrid}"
@@ -4067,6 +4118,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         _holdCq = false;
+        SyncSequencerForManualMacro(macro, msg);
         FreeText = msg;
         InvalidateTxAudioCache();
         PrimeTxAudioCache(msg);
@@ -4150,6 +4202,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>Rebuild FreeText from standard WSJT-X-style templates for the current DX/phase.</summary>
     void ResetTxMacros()
     {
+        _manualTxOverride = false;
         string? next = _seq.NextTxMessage(_settings);
         if (!string.IsNullOrWhiteSpace(next))
         {
@@ -4185,6 +4238,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         _holdCq = false;
+        _manualTxOverride = false;
         _qsoLogPrompted = false;
         _qsoStartUtc = DateTime.UtcNow;
         _seq.StartWorking(call, grid, Report, forceRestart: true);
