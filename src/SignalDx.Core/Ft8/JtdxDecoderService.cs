@@ -236,8 +236,9 @@ public sealed class JtdxDecoderService : IDisposable
         bool isCq = parsed.IsCq;
         bool isNew = !string.IsNullOrWhiteSpace(dxCall) && _heard.Add(dxCall);
         string my = (station.MyCall ?? "").Trim();
+        string firstCall = Ft8MessageBuilder.UnwrapHashed(message.Split(' ', 2)[0]) ?? "";
         bool isToMe = !string.IsNullOrEmpty(my) &&
-                      message.StartsWith(my + " ", StringComparison.OrdinalIgnoreCase);
+                      firstCall.Equals(my, StringComparison.OrdinalIgnoreCase);
         string? country = CallsignCountry.FromCall(dxCall);
         string? state = UsState.Resolve(country, dxGrid, dxCall);
         double? miles = Maidenhead.DistanceMiles(station.MyGrid, dxGrid);

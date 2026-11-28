@@ -86,6 +86,20 @@ public static class Ft8MessageBuilder
         return s;
     }
 
+    /// <summary>Replaces every resolved <c>&lt;CALL&gt;</c> token with <c>CALL</c>; leaves <c>&lt;...&gt;</c> alone.</summary>
+    public static string UnwrapHashedTokens(string? message)
+    {
+        if (string.IsNullOrEmpty(message) || !message.Contains('<')) return message ?? "";
+        var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string p = parts[i];
+            if (p.Length > 2 && p[0] == '<' && p[^1] == '>' && p != "<...>")
+                parts[i] = p[1..^1];
+        }
+        return string.Join(' ', parts);
+    }
+
     /// <summary>True if token looks like a callsign (not a report / 73 / grid).</summary>
     public static bool LooksLikeCall(string? s)
     {

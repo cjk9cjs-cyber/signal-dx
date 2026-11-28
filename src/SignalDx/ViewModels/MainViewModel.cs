@@ -1794,8 +1794,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : $"TX {txRf:0.000000}  RX {rxRf:0.000000}";
     }
 
+    string HashedCallStatus(DecodeHit hit)
+    {
+        var suggestions = HashedCallHint.Suggest(hit, Activity, MyCall);
+        string where = $"Hashed station on {hit.Hz} Hz — full call not decoded yet.";
+        return suggestions.Count == 0
+            ? $"{where} Type the callsign into DX Call to TX."
+            : $"{where} Recently heard here: {string.Join(", ", suggestions)}. Type the right one into DX Call to TX.";
+    }
+
     void ApplySelectedDecode(DecodeHit value)
     {
+        if (HashedCallHint.IsUnresolved(value))
+        {
+            RxHz = value.Hz;
+            Status = HashedCallStatus(value);
+            return;
+        }
+
         // Always load the transmitting station (caller), never the called party.
         var (txCall, txGrid, _) = Ft8MessageBuilder.Parse(value.Message);
         string? call = !string.IsNullOrWhiteSpace(txCall) ? txCall : value.DxCall;
@@ -1858,12 +1874,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void EnableTxForStation(DecodeHit? hit, bool clearRxPane = true)
     {
         if (hit is null) return;
+        if (HashedCallHint.IsUnresolved(hit))
+        {
+            Status = HashedCallStatus(hit);
+            return;
+        }
         ApplySelectedDecode(hit);
         if (string.IsNullOrWhiteSpace(DxCall))
         {
-            Status = hit.Message.Contains("<...>", StringComparison.Ordinal)
-                ? "That station's callsign is hashed and unresolved (<...>) — wait for it to send its full call, TX not armed."
-                : "No callsign on that decode — TX not armed.";
+            Status = "No callsign on that decode — TX not armed.";
             return;
         }
 

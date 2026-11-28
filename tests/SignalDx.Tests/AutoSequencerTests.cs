@@ -217,4 +217,40 @@ public class AutoSequencerTests
         Assert.Equal("", seq.SentReport);
         Assert.Equal("", seq.RcvdReport);
     }
+
+    [Fact]
+    public void HashedCallsign_IsUnwrappedForReplyAndAdvance()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartWorking("W1ABC", "FN42", "-08");
+
+        Assert.True(seq.TryAdvanceFromDecode("K9CJS <W1ABC> -12", station));
+        Assert.Equal(QsoPhase.SentRogerReport, seq.Phase);
+        Assert.Equal("W1ABC", seq.DxCall);
+        Assert.Equal("W1ABC K9CJS R-12", seq.NextTxMessage(station));
+    }
+
+    [Fact]
+    public void HashedCq_ArmsReplyWithPlainCallsign()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartCq();
+
+        Assert.True(seq.TryAdvanceFromDecode("K9CJS <W1ABC> FN42", station));
+        Assert.Equal("W1ABC", seq.DxCall);
+        Assert.Equal("W1ABC K9CJS -10", seq.NextTxMessage(station));
+    }
+
+    [Fact]
+    public void UnresolvedHashedCall_IsNotArmed()
+    {
+        var station = new StationSettings { MyCall = "K9CJS", MyGrid = "EN52" };
+        var seq = new AutoSequencer();
+        seq.StartCq();
+
+        Assert.False(seq.TryAdvanceFromDecode("K9CJS <...> FN42", station));
+        Assert.Equal(QsoPhase.CallingCq, seq.Phase);
+    }
 }

@@ -135,6 +135,7 @@ public sealed class AutoSequencer
     /// </summary>
     public void ArmFromDecode(string message, StationSettings station, string measuredReport)
     {
+        message = Ft8MessageBuilder.UnwrapHashedTokens(message);
         var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2) return;
 
@@ -147,7 +148,7 @@ public sealed class AutoSequencer
             string call = parts.Length > 1 ? parts[1] : "";
             if (parts.Length >= 4 && call is "DX" or "NA" or "EU" or "AS" or "SA" or "OC" or "AF")
                 call = parts[2];
-            if (string.IsNullOrWhiteSpace(call)) return;
+            if (string.IsNullOrWhiteSpace(call) || call.StartsWith('<')) return;
             SetDxCall(call.ToUpperInvariant());
             DxGrid = parts.Length >= 3 && LooksLikeGrid(parts[^1]) ? parts[^1].ToUpperInvariant() : DxGrid;
             Phase = QsoPhase.CallingDx;
@@ -157,7 +158,7 @@ public sealed class AutoSequencer
         bool toMe = parts[0].Equals(my, StringComparison.OrdinalIgnoreCase);
         // Always select the transmitter (CALLER = parts[1]), never the called party.
         string transmitter = parts[1].ToUpperInvariant();
-        if (transmitter.Equals(my, StringComparison.OrdinalIgnoreCase))
+        if (transmitter.Equals(my, StringComparison.OrdinalIgnoreCase) || transmitter.StartsWith('<'))
             return;
 
         SetDxCall(transmitter);
@@ -221,6 +222,7 @@ public sealed class AutoSequencer
     public bool TryAdvanceFromDecode(string message, StationSettings station)
     {
         if (string.IsNullOrWhiteSpace(message)) return false;
+        message = Ft8MessageBuilder.UnwrapHashedTokens(message);
         var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2) return false;
 
@@ -238,6 +240,8 @@ public sealed class AutoSequencer
 
             // Classic first reply to CQ is MYCALL THEIRCALL GRID only.
             if (token != Ft8QsoToken.Grid)
+                return false;
+            if (theirCall.StartsWith('<'))
                 return false;
 
             SetDxCall(theirCall);
