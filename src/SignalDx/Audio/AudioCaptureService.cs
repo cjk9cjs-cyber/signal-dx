@@ -7,8 +7,8 @@ public sealed class AudioCaptureService : IDisposable
 {
     public const int SampleRate = 48000;
 
-    /// <summary>~20 s of mono float at 48 kHz for FT8/FT4 slot extract.</summary>
-    const int RingCapacity = SampleRate * 20;
+    /// <summary>~130 s of mono float at 48 kHz: one full WSPR 2-minute slot plus margin. FT8/FT4 read only the tail.</summary>
+    const int RingCapacity = SampleRate * 130;
 
     WasapiCapture? _wasapi;
     readonly object _gate = new();

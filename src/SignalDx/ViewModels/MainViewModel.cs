@@ -37,6 +37,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     readonly SpectrumAnalyzer _spectrum = new(4096);
     readonly SlotTiming _timing = new();
     readonly JtdxDecoderService _jtdx = new();
+    readonly WsprdDecoderService _wsprd = new();
     readonly AutoSequencer _seq = new();
     int _jtdxDecodeSeq;
     bool _logPromptOpen;
@@ -566,6 +567,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Raise(nameof(IsWsprMode));
             Raise(nameof(IsFtDigiMode));
             Raise(nameof(TxHzToolTip));
+            Raise(nameof(DecoderStatusText));
             CommandManager.InvalidateRequerySuggested();
             RebuildBandPresetList();
         }
@@ -1073,9 +1075,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public string DecoderStatusText =>
-        _jtdx.IsAvailable(_settings.JtdxJt9Path)
-            ? "Decoder: JTDX"
-            : "Decoder: JTDX (path missing — click Find)";
+        IsWsprMode
+            ? WsprdPaths.Find() is null
+                ? "Decoder: wsprd (not found — install WSJT-X)"
+                : "Decoder: wsprd (WSPR)"
+            : _jtdx.IsAvailable(_settings.JtdxJt9Path)
+                ? "Decoder: JTDX"
+                : "Decoder: JTDX (path missing — click Find)";
+
+    string DecoderName => IsWsprMode ? "wsprd" : "JTDX";
 
     public bool AutoSequence
     {
@@ -3465,16 +3473,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     void TriggerSlotDecode()
     {
-        if (!_jtdx.IsAvailable(_settings.JtdxJt9Path))
+        bool wspr = IsWsprMode;
+        bool available = wspr
+            ? WsprdPaths.Find() is not null
+            : _jtdx.IsAvailable(_settings.JtdxJt9Path);
+        if (!available)
         {
-            Status = "JTDX decoder not configured — open Settings → Decoder and click Find.";
+            Status = wspr
+                ? "wsprd.exe not found — install WSJT-X to decode WSPR."
+                : "JTDX decoder not configured — open Settings → Decoder and click Find.";
             FinishDeferredTxAfterDecode();
             return;
         }
 
-        if (_jtdx.IsBusy)
+        if (wspr ? _wsprd.IsBusy : _jtdx.IsBusy)
         {
-            Status = "JTDX still decoding previous slot…";
+            Status = $"{DecoderName} still decoding previous slot…";
             AppendDecodeLog("skip: decoder busy");
             FinishDeferredTxAfterDecode(); // don't skip our TX slot entirely
             return;
@@ -3489,17 +3503,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // JustRolled fires at the start of the new slot — decode the previous period.
         DateTime slotUtc = _timing.UtcNow.AddSeconds(-(_timing.SlotSeconds > 0 ? _timing.SlotSeconds : 15));
         bool ft4 = Mode.Equals("FT4", StringComparison.OrdinalIgnoreCase);
-        double slotSec = ft4 ? 7.5 : 15.0;
+        bool wspr = IsWsprMode;
+        double slotSec = wspr ? WsprEncoder.SlotSeconds : ft4 ? 7.5 : 15.0;
 
         if (!_capture.IsRunning)
         {
-            Status = "JTDX: Start Monitor and select the radio/VAC input device.";
+            Status = $"{DecoderName}: Start Monitor and select the radio/VAC input device.";
             AppendDecodeLog("abort: monitor not running");
             FinishDeferredTxAfterDecode();
             return;
         }
 
-        // Slightly longer than the period so the decoder sees the full FT8/FT4 transmission.
+        // Slightly longer than the period so the decoder sees the full transmission.
         float[] audio = _capture.CopyRecent(slotSec + 0.4);
         double gotSec = audio.Length / (double)AudioCaptureService.SampleRate;
         AppendDecodeLog(
@@ -3508,25 +3523,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (audio.Length < AudioCaptureService.SampleRate * 5)
         {
             Status =
-                $"JTDX: only {gotSec:0.0}s buffered (need ~{slotSec:0}s) — Start Monitor, pick VAC/radio input, wait one slot.";
+                $"{DecoderName}: only {gotSec:0.0}s buffered (need ~{slotSec:0}s) — Start Monitor, pick VAC/radio input, wait one slot.";
             FinishDeferredTxAfterDecode();
             return;
         }
 
-        Status = $"JTDX decoding ({gotSec:0.0}s)…";
+        Status = $"{DecoderName} decoding ({gotSec:0.0}s)…";
         try
         {
-            var hits = await _jtdx.DecodeSlotAsync(audio, _settings, slotUtc).ConfigureAwait(true);
+            var hits = wspr
+                ? await _wsprd.DecodeSlotAsync(audio, _settings, slotUtc).ConfigureAwait(true)
+                : await _jtdx.DecodeSlotAsync(audio, _settings, slotUtc).ConfigureAwait(true);
             if (seq != _jtdxDecodeSeq) return;
             AppendDecodeLog($"done hits={hits.Count}");
             string label = hits.Count == 0
-                ? "JTDX — check IN level / input device"
-                : "JTDX";
+                ? $"{DecoderName} — check IN level / input device"
+                : DecoderName;
             PushDecodes(hits, label, slotUtc);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("busy", StringComparison.OrdinalIgnoreCase))
         {
-            Status = "JTDX still decoding previous slot…";
+            Status = $"{DecoderName} still decoding previous slot…";
             FinishDeferredTxAfterDecode();
         }
         catch (OperationCanceledException)
@@ -3538,7 +3555,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (seq != _jtdxDecodeSeq) return;
             AppendDecodeLog($"error: {ex}");
-            Status = $"JTDX decode failed: {ex.Message}";
+            Status = $"{DecoderName} decode failed: {ex.Message}";
             FinishDeferredTxAfterDecode();
         }
     }
@@ -3890,7 +3907,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     bool IsUnverifiedDecode(DecodeHit hit)
     {
-        if (!AllCall7DimmingEnabled) return false;
+        if (!AllCall7DimmingEnabled || IsWsprMode) return false;
         string call = hit.DxCall?.Trim() ?? "";
         if (call.Length == 0) return false;
         if (call.Equals(MyCall?.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
@@ -5287,6 +5304,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try { SaveSettingsNow(); } catch { /* ignore */ }
         _playback.Stop();
         _jtdx.Dispose();
+        _wsprd.Dispose();
         _capture.Dispose();
         _playback.Dispose();
         _callAlert.Dispose();

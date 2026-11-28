@@ -84,6 +84,7 @@ if (-not $wsjtBin) { throw "WSJT-X bin not found (need ft8code.exe)." }
 $wsjtDest = Join-Path $Destination 'WSJT'
 $wsjtFiles = @(
     'ft8code.exe',
+    'wsprd.exe',
     'libgfortran-4.dll',
     'libstdc++-6.dll',
     'libgcc_s_seh-1.dll',
@@ -123,7 +124,7 @@ $notice = @"
 Signal DX bundles redistributable tools from:
 
 - JTDX (jtdxjt9) — https://jtdx.tech / contest builds — GPL
-- WSJT-X (ft8code) — https://wsjt.sourceforge.io — GPL
+- WSJT-X (ft8code, wsprd) — https://wsjt.sourceforge.io — GPL
 - Hamlib (rigctld) — https://hamlib.github.io — LGPL
 
 Ham Radio Deluxe (HRD) is NOT included. Use Settings → CAT → Ham Radio Deluxe

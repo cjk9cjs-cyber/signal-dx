@@ -2,7 +2,7 @@ namespace SignalDx.Services;
 
 /// <summary>
 /// Locates tools shipped under <c>{app}\Tools\</c> by the Windows installer
-/// (JTDX decoder, WSJT-X ft8code, Hamlib rigctld). HRD is not bundled.
+/// (JTDX decoder, WSJT-X ft8code and wsprd, Hamlib rigctld). HRD is not bundled.
 /// </summary>
 public static class BundledTools
 {
@@ -27,6 +27,15 @@ public static class BundledTools
         get
         {
             string p = Path.Combine(WsjtDir, "ft8code.exe");
+            return File.Exists(p) ? p : null;
+        }
+    }
+
+    public static string? WsprdPath
+    {
+        get
+        {
+            string p = Path.Combine(WsjtDir, "wsprd.exe");
             return File.Exists(p) ? p : null;
         }
     }
