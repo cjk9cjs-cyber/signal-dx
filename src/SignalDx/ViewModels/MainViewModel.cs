@@ -1097,6 +1097,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { _settings.CallAlertEnabled = value; Raise(); }
     }
 
+    public bool IgnoreOwnSignal
+    {
+        get => _settings.IgnoreOwnSignal;
+        set { _settings.IgnoreOwnSignal = value; Raise(); }
+    }
+
+    DateTime _lastTxStartUtc = DateTime.MinValue;
+    DateTime _lastTxEndUtc = DateTime.MinValue;
+
+    /// <summary>True when our own transmission covered at least a second of the slot [slotStart, slotStart+slotSec].</summary>
+    bool OverlapsOwnTx(DateTime slotStartUtc, double slotSec)
+    {
+        if (_lastTxStartUtc == DateTime.MinValue) return false;
+        DateTime slotEnd = slotStartUtc.AddSeconds(slotSec);
+        DateTime txEnd = _isTransmitting || _lastTxEndUtc < _lastTxStartUtc ? DateTime.UtcNow : _lastTxEndUtc;
+        DateTime from = _lastTxStartUtc > slotStartUtc ? _lastTxStartUtc : slotStartUtc;
+        DateTime to = txEnd < slotEnd ? txEnd : slotEnd;
+        return (to - from).TotalSeconds >= 1.0;
+    }
+
     public string CallAlertSoundPath
     {
         get => _settings.CallAlertSoundPath;
@@ -1755,6 +1775,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (_isTransmitting == value) return;
             _isTransmitting = value;
+            if (value)
+                _lastTxStartUtc = DateTime.UtcNow;
+            else
+                _lastTxEndUtc = DateTime.UtcNow;
             Raise();
             CommandManager.InvalidateRequerySuggested();
         }
@@ -3506,6 +3530,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         bool wspr = IsWsprMode;
         double slotSec = wspr ? WsprEncoder.SlotSeconds : ft4 ? 7.5 : 15.0;
 
+        if (IgnoreOwnSignal && OverlapsOwnTx(slotUtc, slotSec))
+        {
+            Status = "Skipped decode — we transmitted in that slot.";
+            AppendDecodeLog($"skip: own TX in slot={slotUtc:HH:mm:ss}");
+            FinishDeferredTxAfterDecode();
+            return;
+        }
+
         if (!_capture.IsRunning)
         {
             Status = $"{DecoderName}: Start Monitor and select the radio/VAC input device.";
@@ -3587,6 +3619,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             string? wantedReason = null;
             bool autoReplied = false;
             int blockedCount = 0;
+            string myCall = MyCall.Trim();
+            if (IgnoreOwnSignal && myCall.Length > 0)
+            {
+                hits = hits
+                    .Where(h => !string.Equals(h.DxCall?.Trim(), myCall, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
             if (_settings.BlockedCalls.Count > 0)
             {
                 var visible = hits.Where(h => !CallBlockList.IsBlocked(_settings.BlockedCalls, h.DxCall)).ToList();

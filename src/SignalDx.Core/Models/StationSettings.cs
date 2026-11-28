@@ -122,6 +122,8 @@ public sealed class StationSettings
     public string LotwStationLocation { get; set; } = "";
     /// <summary>Play a sound when a decode is addressed to MyCall.</summary>
     public bool CallAlertEnabled { get; set; } = true;
+    /// <summary>Skip decoding slots we transmitted in and drop decodes sent from MyCall (like WSJT-X not decoding while Tx).</summary>
+    public bool IgnoreOwnSignal { get; set; } = true;
     /// <summary>Optional custom WAV path; empty uses Assets/call-alert.wav beside the exe.</summary>
     public string CallAlertSoundPath { get; set; } = "";
 

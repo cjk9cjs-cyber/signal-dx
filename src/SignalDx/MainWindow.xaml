@@ -260,6 +260,8 @@
                       ToolTip="Play a sound when a station calls your callsign"/>
             <CheckBox Content="Wanted alert" IsChecked="{Binding WantedAlertEnabled}" Margin="8,0,0,0"
                       ToolTip="Play a sound when a Wanted call/state/country is decoded (Settings → Wanted)"/>
+            <CheckBox Content="Ignore own TX" IsChecked="{Binding IgnoreOwnSignal}" Margin="8,0,0,0"
+                      ToolTip="Don't decode slots where you transmitted, and hide decodes sent from your own callsign (e.g. audio loopback / VAC feeding your TX back into RX)."/>
             <CheckBox Content="TX even" IsChecked="{Binding TxEven}"
                       Visibility="{Binding IsFtDigiMode, Converter={StaticResource BoolToVis}}"/>
             <CheckBox Content="Lock Tx=Rx" IsChecked="{Binding LockTxToRx}" Margin="12,0,0,0"/>
