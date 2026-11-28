@@ -3397,6 +3397,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (_waterfall is null) return;
 
+        if (IsWsprMode)
+        {
+            PushWsprSpectrum();
+            return;
+        }
+
+        _waterfall.FftSize = _spectrum.FftSize;
         const int fftN = 4096;
         if (frame.Length == 0)
         {
@@ -3412,6 +3419,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         _waterfall.PushSpectrum(_spectrum.MagnitudesDb);
+    }
+
+    /// <summary>
+    /// WSPR tones are ~1.5 Hz wide, so the 4096-point FT8 view (11.7 Hz bins) buries them in noise.
+    /// A 32768-point FFT (1.46 Hz bins, one WSPR symbol long) with a short power average brings them out.
+    /// </summary>
+    const int WsprFftSize = 32768;
+    const double WsprSpectrumIntervalMs = 250;
+    readonly SpectrumAnalyzer _wsprSpectrum = new(WsprFftSize);
+    readonly SpectrumAverager _wsprSpectrumAvg = new(WsprFftSize / 2, depth: 3);
+    long _lastWsprSpectrumTicks;
+
+    void PushWsprSpectrum()
+    {
+        if (_waterfall is null) return;
+
+        long now = Environment.TickCount64;
+        if (_lastWsprSpectrumTicks != 0 && now - _lastWsprSpectrumTicks < WsprSpectrumIntervalMs) return;
+        _lastWsprSpectrumTicks = now;
+
+        float[] audio = _capture.IsRunning
+            ? _capture.CopyRecent((double)WsprFftSize / AudioCaptureService.SampleRate)
+            : [];
+        if (audio.Length == 0)
+        {
+            audio = new float[WsprFftSize];
+            var rng = Random.Shared;
+            for (int i = 0; i < audio.Length; i++)
+                audio[i] = (float)((rng.NextDouble() - 0.5) * 0.002);
+        }
+
+        _wsprSpectrum.Analyze(audio);
+        // +9 dB keeps the noise floor near the FT8-view level the waterfall AGC expects.
+        var shown = _wsprSpectrumAvg.Add(_wsprSpectrum.MagnitudesDb, 9f);
+        _waterfall.FftSize = WsprFftSize;
+        _waterfall.PushSpectrum(shown);
     }
 
     double _rxLevelSmoothDb = -80;
